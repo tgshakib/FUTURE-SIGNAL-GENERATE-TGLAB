@@ -4,9 +4,6 @@ import { logger } from "./lib/logger";
 const BOT_TOKEN = process.env["TELEGRAM_BOT_TOKEN"];
 const ADMIN_CHAT_ID = process.env["TELEGRAM_ADMIN_CHAT_ID"];
 
-const USERNAME = "qxpro";
-const PASSWORD = "82286";
-
 const realAssets = [
   "EURUSD", "EURGBP", "USDJPY", "GBPUSD", "AUDCAD", "GBPCHF", "CADJPY",
 ];
@@ -43,16 +40,7 @@ const predefinedSignals: { asset: string; direction: "CALL" | "PUT" }[] = [
 ];
 
 interface SessionData {
-  state:
-    | "idle"
-    | "await_username"
-    | "await_password"
-    | "authenticated"
-    | "await_market"
-    | "await_assets"
-    | "await_direction"
-    | "await_method";
-  username?: string;
+  state: "idle" | "await_market" | "await_assets" | "await_direction" | "await_method";
   market?: "real" | "otc";
   selectedAssets?: string[];
   direction?: "BOTH" | "CALL" | "PUT";
@@ -107,9 +95,7 @@ function generateSignals(
 
 async function sendMainMenu(ctx: MyContext): Promise<void> {
   await ctx.reply(
-    "✅ *Login successful!*\n\n" +
-    "Welcome to *Quantum Signal Generator*\n" +
-    "Choose an option below:",
+    "🤖 *TG ADVANCE SIGNAL GENERATOR*\n\nWelcome! Choose an option below:",
     {
       parse_mode: "Markdown",
       ...Markup.inlineKeyboard([
@@ -150,104 +136,40 @@ export function startBot(): void {
   );
 
   bot.telegram.setMyCommands([
-    { command: "start", description: "Login and start" },
+    { command: "start", description: "Start the bot" },
     { command: "futuresignal", description: "Generate future signals" },
-    { command: "login", description: "Login again" },
-    { command: "logout", description: "Log out" },
     { command: "help", description: "Show help" },
   ]).catch(() => {});
 
   bot.start(async (ctx) => {
-    ctx.session = { state: "await_username" };
-    await ctx.reply(
-      "🤖 *Welcome to Quantum Signal Generator*\n\nPlease enter your *username*:",
-      { parse_mode: "Markdown" },
-    );
-  });
-
-  bot.command("login", async (ctx) => {
-    ctx.session = { state: "await_username" };
-    await ctx.reply("Please enter your *username*:", {
-      parse_mode: "Markdown",
-    });
-  });
-
-  bot.command("logout", async (ctx) => {
     ctx.session = { state: "idle" };
-    await ctx.reply("👋 Logged out. Use /start to login again.");
+    await sendMainMenu(ctx);
   });
 
   bot.command("help", async (ctx) => {
     await ctx.reply(
       "📋 *Commands*\n\n" +
-        "/start — Login and start\n" +
+        "/start — Start the bot\n" +
         "/futuresignal — Generate future signals\n" +
-        "/login — Login again\n" +
-        "/logout — Log out\n" +
         "/help — Show this message",
       { parse_mode: "Markdown" },
     );
   });
 
   bot.command("futuresignal", async (ctx) => {
-    if (ctx.session.state !== "authenticated") {
-      await ctx.reply("⛔ Please /login first.");
-      return;
-    }
-    await startSignalFlow(ctx);
-  });
-
-  bot.command("generate", async (ctx) => {
-    if (ctx.session.state !== "authenticated") {
-      await ctx.reply("⛔ Please /login first.");
-      return;
-    }
     await startSignalFlow(ctx);
   });
 
   bot.action("futuresignal", async (ctx) => {
     await ctx.answerCbQuery();
-    if (ctx.session.state !== "authenticated") {
-      await ctx.reply("⛔ Please /login first.");
-      return;
-    }
     await startSignalFlow(ctx);
-  });
-
-  bot.on("text", async (ctx) => {
-    const text = ctx.message.text.trim();
-    const state = ctx.session.state;
-
-    if (state === "await_username") {
-      ctx.session.username = text;
-      ctx.session.state = "await_password";
-      await ctx.reply("🔑 Enter your *password*:", { parse_mode: "Markdown" });
-      return;
-    }
-
-    if (state === "await_password") {
-      if (ctx.session.username === USERNAME && text === PASSWORD) {
-        ctx.session.state = "authenticated";
-        await sendMainMenu(ctx);
-      } else {
-        ctx.session.state = "idle";
-        await ctx.reply(
-          "❌ *Authentication failed.* Use /start to try again.",
-          { parse_mode: "Markdown" },
-        );
-      }
-      return;
-    }
-
-    if (state !== "authenticated") {
-      await ctx.reply("Use /start to begin.");
-    }
   });
 
   bot.action("market_real", async (ctx) => {
     if (ctx.session.state !== "await_market") return;
     ctx.session.market = "real";
     ctx.session.state = "await_assets";
+    ctx.session.selectedAssets = [];
     await ctx.answerCbQuery();
     const buttons = realAssets.map((a) =>
       Markup.button.callback(a, `asset_${a}`),
@@ -257,7 +179,6 @@ export function startBot(): void {
       rows.push(buttons.slice(i, i + 3));
     }
     rows.push([Markup.button.callback("✅ Done selecting", "assets_done")]);
-    ctx.session.selectedAssets = [];
     await ctx.editMessageText(
       "📌 *Select assets* (tap to toggle, then press Done):\n\n_Selected: none_",
       { parse_mode: "Markdown", ...Markup.inlineKeyboard(rows) },
@@ -268,6 +189,7 @@ export function startBot(): void {
     if (ctx.session.state !== "await_market") return;
     ctx.session.market = "otc";
     ctx.session.state = "await_assets";
+    ctx.session.selectedAssets = [];
     await ctx.answerCbQuery();
     const buttons = otcAssets.map((a) =>
       Markup.button.callback(a, `asset_${a}`),
@@ -277,7 +199,6 @@ export function startBot(): void {
       rows.push(buttons.slice(i, i + 3));
     }
     rows.push([Markup.button.callback("✅ Done selecting", "assets_done")]);
-    ctx.session.selectedAssets = [];
     await ctx.editMessageText(
       "📌 *Select assets* (tap to toggle, then press Done):\n\n_Selected: none_",
       { parse_mode: "Markdown", ...Markup.inlineKeyboard(rows) },
@@ -309,9 +230,7 @@ export function startBot(): void {
     }
     rows.push([Markup.button.callback("✅ Done selecting", "assets_done")]);
 
-    await ctx.answerCbQuery(
-      idx === -1 ? `Added: ${asset}` : `Removed: ${asset}`,
-    );
+    await ctx.answerCbQuery(idx === -1 ? `Added: ${asset}` : `Removed: ${asset}`);
     await ctx.editMessageText(
       `📌 *Select assets* (tap to toggle, then press Done):\n\n_Selected: ${selected.length > 0 ? selected.join(", ") : "none"}_`,
       { parse_mode: "Markdown", ...Markup.inlineKeyboard(rows) },
@@ -373,7 +292,7 @@ export function startBot(): void {
       const direction = ctx.session.direction ?? "BOTH";
       const signals = generateSignals(assets, direction, method);
 
-      ctx.session.state = "authenticated";
+      ctx.session.state = "idle";
 
       if (signals.length === 0) {
         await ctx.editMessageText(
@@ -388,7 +307,7 @@ export function startBot(): void {
       }
 
       const header =
-        `🚀 *Quantum Signal Generator*\n` +
+        `🚀 *TG ADVANCE SIGNAL GENERATOR*\n` +
         `📅 ${new Date().toUTCString()}\n` +
         `Market: *${ctx.session.market?.toUpperCase()}* | Direction: *${direction}*\n` +
         `━━━━━━━━━━━━━━━━━━━━\n`;
@@ -433,7 +352,7 @@ export function startBot(): void {
     bot.telegram
       .sendMessage(
         ADMIN_CHAT_ID,
-        "🤖 *Quantum Signal Bot is online!*\nSend /start to any user to begin.",
+        "🤖 *TG ADVANCE SIGNAL GENERATOR is online!*",
         { parse_mode: "Markdown" },
       )
       .catch(() => {});
