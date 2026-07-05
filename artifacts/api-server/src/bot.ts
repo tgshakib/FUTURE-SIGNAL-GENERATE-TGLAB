@@ -191,11 +191,12 @@ function buildSignalMessage(
       direction === "BOTH" ? (Math.random() < 0.5 ? "CALL" : "PUT") : direction;
     const name = escapeHtml(formatAssetName(asset, market));
 
-    let cursor = new Date(nowMs + (1 + Math.floor(Math.random() * 5)) * 60000);
+    const startOffsetMs = (2 + Math.random()) * 60000;
+    let cursor = new Date(nowMs + startOffsetMs);
     const times: string[] = [];
     for (let i = 0; i < signalCount; i++) {
       times.push(`${pad2(cursor.getUTCHours())}:${pad2(cursor.getUTCMinutes())}`);
-      cursor = new Date(cursor.getTime() + (7 + Math.floor(Math.random() * 7)) * 60000);
+      cursor = new Date(cursor.getTime() + (2 + Math.floor(Math.random() * 3)) * 60000);
     }
 
     const blockHeader = isOtc
@@ -502,13 +503,20 @@ export function startBot(): void {
         rem = rem.slice(at).trimStart();
       }
 
+      const chatId = ctx.chat!.id;
+      const deleteMsgIds: number[] = [];
+
+      const firstMsgId = (ctx.callbackQuery as { message?: { message_id?: number } })?.message?.message_id;
+      if (firstMsgId) deleteMsgIds.push(firstMsgId);
       await ctx.editMessageText(chunks[0]!, { parse_mode: "HTML" });
+
       for (let i = 1; i < chunks.length; i++) {
-        await ctx.reply(chunks[i]!, { parse_mode: "HTML" });
+        const m = await ctx.reply(chunks[i]!, { parse_mode: "HTML" });
+        deleteMsgIds.push(m.message_id);
       }
 
-      await ctx.reply(
-        `✅ <b>${count} signals × ${selectedAssets.length} pair(s) generated.</b>`,
+      const summaryMsg = await ctx.reply(
+        `✅ <b>${count} signals × ${selectedAssets.length} pair(s)</b>\n⏱ <i>Auto-deleting in 10s…</i>`,
         {
           parse_mode: "HTML",
           ...Markup.inlineKeyboard([
@@ -516,6 +524,23 @@ export function startBot(): void {
           ]),
         },
       );
+      const summaryMsgId = summaryMsg.message_id;
+
+      const MENU_TEXT = "🤖 <b>TG ADVANCE SIGNAL GENERATOR</b>\n\nWelcome! Choose an option below:";
+      const MENU_KB = Markup.inlineKeyboard([[Markup.button.callback("🔮 FUTURE SIGNAL • TG", "futuresignal")]]);
+
+      setTimeout(() => {
+        for (const id of deleteMsgIds) {
+          bot.telegram.deleteMessage(chatId, id).catch(() => {});
+        }
+        bot.telegram
+          .editMessageText(chatId, summaryMsgId, undefined, MENU_TEXT, {
+            parse_mode: "HTML",
+            ...MENU_KB,
+          })
+          .catch(() => {});
+        ctx.session.state = "idle";
+      }, 10000);
     });
   }
 
