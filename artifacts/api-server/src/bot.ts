@@ -34,13 +34,22 @@ const quotexOtcAssets = [
   "Silver (OTC)", "Gold (OTC)", "Ripple (OTC)", "Zcash (OTC)",
 ];
 
-const pocketOptionOtcAssets = [
-  "EUR/USD-PO", "GBP/USD-PO", "USD/JPY-PO", "AUD/USD-PO", "USD/CAD-PO",
-  "USD/CHF-PO", "EUR/GBP-PO", "EUR/JPY-PO", "GBP/JPY-PO", "CAD/JPY-PO",
-  "AUD/CAD-PO", "NZD/USD-PO", "EUR/CHF-PO", "AUD/CHF-PO", "CAD/CHF-PO",
-  "GBP/CHF-PO", "AUD/JPY-PO", "CHF/JPY-PO", "EUR/AUD-PO", "GBP/AUD-PO",
-  "EUR/CAD-PO", "GBP/CAD-PO", "AUD/NZD-PO", "NZD/CAD-PO", "NZD/CHF-PO",
-  "NZD/JPY-PO", "GBP/NZD-PO", "EUR/NZD-PO",
+const brokerSharedOtcAssets = [
+  "Avalanche OTC", "Dogecoin OTC", "Solana OTC", "BNB OTC", "Cardano OTC",
+  "Bitcoin ETF OTC", "TRON OTC", "Toncoin OTC", "Polygon OTC", "Litecoin OTC",
+  "Brent Oil OTC", "WTI Crude Oil OTC", "Silver OTC", "Gold OTC",
+  "Natural Gas OTC", "Palladium spot OTC", "Platinum spot OTC",
+  "Cisco OTC", "Pfizer Inc OTC", "Citigroup Inc OTC", "Netflix OTC",
+  "Boeing Company OTC", "GameStop Corp OTC", "Johnson & Johnson OTC",
+  "Intel OTC", "Microsoft OTC",
+  "SAR/CNY OTC", "EUR/JPY OTC", "MAD/USD OTC", "USD/THB OTC", "EUR/RUB OTC",
+  "USD/CLP OTC", "OMR/CNY OTC", "UAH/USD OTC", "USD/DZD OTC", "EUR/NZD OTC",
+  "CHF/NOK OTC", "USD/EGP OTC", "USD/RUB OTC", "KES/USD OTC", "TND/USD OTC",
+  "YER/USD OTC", "AED/CNY OTC", "EUR/HUF OTC", "USD/PKR OTC", "USD/CHF OTC",
+  "USD/IDR OTC", "JOD/CNY OTC", "GBP/JPY OTC", "USD/BDT OTC", "USD/PHP OTC",
+  "AUD/CAD OTC", "USD/VND OTC", "ZAR/USD OTC", "CHF/JPY OTC", "AUD/JPY OTC",
+  "AUD/NZD OTC", "EUR/TRY OTC", "USD/MYR OTC", "USD/SGD OTC", "USD/CAD OTC",
+  "NZD/JPY OTC",
 ];
 
 const predefinedSignals: { asset: string; direction: "CALL" | "PUT" }[] = [
@@ -73,16 +82,22 @@ const predefinedSignals: { asset: string; direction: "CALL" | "PUT" }[] = [
   { asset: "Solana (OTC)", direction: "CALL" },
   { asset: "Gold (OTC)", direction: "CALL" },
   { asset: "NZD/CAD (OTC)", direction: "CALL" },
-  { asset: "EUR/USD-PO", direction: "CALL" },
-  { asset: "GBP/USD-PO", direction: "PUT" },
-  { asset: "USD/JPY-PO", direction: "CALL" },
-  { asset: "AUD/USD-PO", direction: "PUT" },
-  { asset: "EUR/JPY-PO", direction: "PUT" },
-  { asset: "GBP/JPY-PO", direction: "CALL" },
-  { asset: "NZD/USD-PO", direction: "PUT" },
+  { asset: "Solana OTC", direction: "CALL" },
+  { asset: "Gold OTC", direction: "CALL" },
+  { asset: "BNB OTC", direction: "PUT" },
+  { asset: "Toncoin OTC", direction: "CALL" },
+  { asset: "Microsoft OTC", direction: "CALL" },
+  { asset: "Netflix OTC", direction: "PUT" },
+  { asset: "EUR/JPY OTC", direction: "CALL" },
+  { asset: "GBP/JPY OTC", direction: "PUT" },
+  { asset: "USD/CHF OTC", direction: "CALL" },
+  { asset: "AUD/CAD OTC", direction: "PUT" },
+  { asset: "USD/SGD OTC", direction: "CALL" },
+  { asset: "Gold OTC", direction: "CALL" },
+  { asset: "Litecoin OTC", direction: "PUT" },
 ];
 
-type MarketType = "real" | "quotex" | "po";
+type MarketType = "real" | "quotex" | "po" | "iq" | "olymp";
 
 interface SessionData {
   state: "idle" | "await_market" | "await_assets" | "await_direction" | "await_method";
@@ -96,6 +111,9 @@ type MyContext = import("telegraf").Context & {
   session: SessionData;
 };
 
+const MIN_ASSETS = 1;
+const MAX_ASSETS = 5;
+
 function pad2(n: number): string {
   return n.toString().padStart(2, "0");
 }
@@ -103,13 +121,18 @@ function pad2(n: number): string {
 function getAssetsForMarket(market: MarketType): string[] {
   if (market === "real") return realAssets;
   if (market === "quotex") return quotexOtcAssets;
-  return pocketOptionOtcAssets;
+  return brokerSharedOtcAssets;
 }
 
 function marketLabel(market: MarketType): string {
-  if (market === "real") return "REAL MARKET";
-  if (market === "quotex") return "QUOTEX OTC";
-  return "POCKET OPTION OTC";
+  const labels: Record<MarketType, string> = {
+    real: "REAL MARKET",
+    quotex: "QUOTEX OTC",
+    po: "POCKET OPTION OTC",
+    iq: "IQ OPTION OTC",
+    olymp: "OLYMP TRADE OTC",
+  };
+  return labels[market];
 }
 
 function generateSignals(
@@ -150,17 +173,14 @@ function generateSignals(
   return signals;
 }
 
-async function sendMainMenu(ctx: MyContext): Promise<void> {
-  await ctx.reply(
-    "🤖 *TG ADVANCE SIGNAL GENERATOR*\n\nWelcome! Choose an option below:",
-    {
-      parse_mode: "Markdown",
-      ...Markup.inlineKeyboard([
-        [Markup.button.callback("🔮 FUTURE SIGNAL • TG", "futuresignal")],
-      ]),
-    },
-  );
-}
+const marketKeyboard = Markup.inlineKeyboard([
+  [Markup.button.callback("🌍 Real Market", "market_real")],
+  [Markup.button.callback("📈 Quotex OTC", "market_quotex")],
+  [Markup.button.callback("💼 Pocket Option OTC", "market_po")],
+  [Markup.button.callback("📊 IQ Option OTC", "market_iq")],
+  [Markup.button.callback("🏦 Olymp Trade OTC", "market_olymp")],
+  [Markup.button.callback("🔙 Back", "back_to_menu")],
+]);
 
 function buildAssetKeyboard(
   assets: string[],
@@ -174,8 +194,32 @@ function buildAssetKeyboard(
   for (let i = 0; i < buttons.length; i += 3) {
     rows.push(buttons.slice(i, i + 3));
   }
-  rows.push([Markup.button.callback("✅ Done selecting", "assets_done")]);
+  rows.push([
+    Markup.button.callback("✅ Done", "assets_done"),
+    Markup.button.callback("🔙 Back", "back_to_market"),
+  ]);
   return Markup.inlineKeyboard(rows);
+}
+
+function directionKeyboard(): ReturnType<typeof Markup.inlineKeyboard> {
+  return Markup.inlineKeyboard([
+    [
+      Markup.button.callback("↕ Both", "dir_BOTH"),
+      Markup.button.callback("📈 CALL", "dir_CALL"),
+      Markup.button.callback("📉 PUT", "dir_PUT"),
+    ],
+    [Markup.button.callback("🔙 Back", "back_to_assets")],
+  ]);
+}
+
+function methodKeyboard(): ReturnType<typeof Markup.inlineKeyboard> {
+  return Markup.inlineKeyboard([
+    [
+      Markup.button.callback("🎲 Generate", "method_generate"),
+      Markup.button.callback("📋 Predefined", "method_predefined"),
+    ],
+    [Markup.button.callback("🔙 Back", "back_to_direction")],
+  ]);
 }
 
 export function startBot(): void {
@@ -198,6 +242,18 @@ export function startBot(): void {
     { command: "help", description: "Show help" },
   ]).catch(() => {});
 
+  async function sendMainMenu(ctx: MyContext): Promise<void> {
+    await ctx.reply(
+      "🤖 *TG ADVANCE SIGNAL GENERATOR*\n\nWelcome! Choose an option below:",
+      {
+        parse_mode: "Markdown",
+        ...Markup.inlineKeyboard([
+          [Markup.button.callback("🔮 FUTURE SIGNAL • TG", "futuresignal")],
+        ]),
+      },
+    );
+  }
+
   bot.start(async (ctx) => {
     ctx.session = { state: "idle" };
     await sendMainMenu(ctx);
@@ -215,45 +271,79 @@ export function startBot(): void {
 
   bot.command("futuresignal", async (ctx) => {
     ctx.session.state = "await_market";
-    await ctx.reply(
-      "📊 *Select Market Type:*",
-      {
-        parse_mode: "Markdown",
-        ...Markup.inlineKeyboard([
-          [Markup.button.callback("🌍 Real Market", "market_real")],
-          [Markup.button.callback("📈 Quotex OTC", "market_quotex")],
-          [Markup.button.callback("💼 Pocket Option OTC", "market_po")],
-        ]),
-      },
-    );
+    await ctx.reply("📊 *Select Market Type:*", {
+      parse_mode: "Markdown",
+      ...marketKeyboard,
+    });
   });
 
   bot.action("futuresignal", async (ctx) => {
     await ctx.answerCbQuery();
     ctx.session.state = "await_market";
+    await ctx.editMessageText("📊 *Select Market Type:*", {
+      parse_mode: "Markdown",
+      ...marketKeyboard,
+    });
+  });
+
+  bot.action("back_to_menu", async (ctx) => {
+    await ctx.answerCbQuery();
+    ctx.session = { state: "idle" };
     await ctx.editMessageText(
-      "📊 *Select Market Type:*",
+      "🤖 *TG ADVANCE SIGNAL GENERATOR*\n\nWelcome! Choose an option below:",
       {
         parse_mode: "Markdown",
         ...Markup.inlineKeyboard([
-          [Markup.button.callback("🌍 Real Market", "market_real")],
-          [Markup.button.callback("📈 Quotex OTC", "market_quotex")],
-          [Markup.button.callback("💼 Pocket Option OTC", "market_po")],
+          [Markup.button.callback("🔮 FUTURE SIGNAL • TG", "futuresignal")],
         ]),
       },
     );
   });
 
-  async function handleMarketSelect(
-    ctx: MyContext,
-    market: MarketType,
-  ): Promise<void> {
+  bot.action("back_to_market", async (ctx) => {
+    await ctx.answerCbQuery();
+    ctx.session.state = "await_market";
+    ctx.session.selectedAssets = [];
+    await ctx.editMessageText("📊 *Select Market Type:*", {
+      parse_mode: "Markdown",
+      ...marketKeyboard,
+    });
+  });
+
+  bot.action("back_to_assets", async (ctx) => {
+    await ctx.answerCbQuery();
+    ctx.session.state = "await_assets";
+    const assets = getAssetsForMarket(ctx.session.market ?? "real");
+    const selected = ctx.session.selectedAssets ?? [];
+    await ctx.editMessageText(
+      `📌 *Select assets* (min ${MIN_ASSETS}, max ${MAX_ASSETS}):\n\n_Selected: ${selected.length > 0 ? selected.join(", ") : "none"}_`,
+      {
+        parse_mode: "Markdown",
+        ...buildAssetKeyboard(assets, selected),
+      },
+    );
+  });
+
+  bot.action("back_to_direction", async (ctx) => {
+    await ctx.answerCbQuery();
+    ctx.session.state = "await_direction";
+    const selected = ctx.session.selectedAssets ?? [];
+    await ctx.editMessageText(
+      `✅ *${selected.length} asset(s) selected.*\n\n📊 Filter signal direction:`,
+      {
+        parse_mode: "Markdown",
+        ...directionKeyboard(),
+      },
+    );
+  });
+
+  async function handleMarketSelect(ctx: MyContext, market: MarketType): Promise<void> {
     ctx.session.market = market;
     ctx.session.state = "await_assets";
     ctx.session.selectedAssets = [];
     const assets = getAssetsForMarket(market);
     await ctx.editMessageText(
-      "📌 *Select assets* (tap to toggle, then press Done):\n\n_Selected: none_",
+      `📌 *Select assets* (min ${MIN_ASSETS}, max ${MAX_ASSETS}):\n\n_Selected: none_`,
       {
         parse_mode: "Markdown",
         ...buildAssetKeyboard(assets, []),
@@ -279,24 +369,43 @@ export function startBot(): void {
     await handleMarketSelect(ctx, "po");
   });
 
+  bot.action("market_iq", async (ctx) => {
+    if (ctx.session.state !== "await_market") return;
+    await ctx.answerCbQuery();
+    await handleMarketSelect(ctx, "iq");
+  });
+
+  bot.action("market_olymp", async (ctx) => {
+    if (ctx.session.state !== "await_market") return;
+    await ctx.answerCbQuery();
+    await handleMarketSelect(ctx, "olymp");
+  });
+
   bot.action(/^asset_(.+)$/, async (ctx) => {
     if (ctx.session.state !== "await_assets") return;
     const asset = ctx.match[1];
     if (!ctx.session.selectedAssets) ctx.session.selectedAssets = [];
 
-    const idx = ctx.session.selectedAssets.indexOf(asset);
+    const selected = ctx.session.selectedAssets;
+    const idx = selected.indexOf(asset);
+
     if (idx === -1) {
-      ctx.session.selectedAssets.push(asset);
+      if (selected.length >= MAX_ASSETS) {
+        await ctx.answerCbQuery(`⚠️ Maximum ${MAX_ASSETS} assets allowed!`, {
+          show_alert: true,
+        });
+        return;
+      }
+      selected.push(asset);
+      await ctx.answerCbQuery(`✔ ${asset}`);
     } else {
-      ctx.session.selectedAssets.splice(idx, 1);
+      selected.splice(idx, 1);
+      await ctx.answerCbQuery(`✖ ${asset}`);
     }
 
-    const selected = ctx.session.selectedAssets;
     const assets = getAssetsForMarket(ctx.session.market ?? "real");
-
-    await ctx.answerCbQuery(idx === -1 ? `✔ ${asset}` : `✖ ${asset}`);
     await ctx.editMessageText(
-      `📌 *Select assets* (tap to toggle, then press Done):\n\n_Selected: ${selected.length > 0 ? selected.join(", ") : "none"}_`,
+      `📌 *Select assets* (min ${MIN_ASSETS}, max ${MAX_ASSETS}):\n\n_Selected: ${selected.length > 0 ? selected.join(", ") : "none"}_`,
       {
         parse_mode: "Markdown",
         ...buildAssetKeyboard(assets, selected),
@@ -306,8 +415,8 @@ export function startBot(): void {
 
   bot.action("assets_done", async (ctx) => {
     const selected = ctx.session.selectedAssets ?? [];
-    if (selected.length < 5) {
-      await ctx.answerCbQuery("⚠️ Please select at least 5 assets!", {
+    if (selected.length < MIN_ASSETS) {
+      await ctx.answerCbQuery(`⚠️ Please select at least ${MIN_ASSETS} asset!`, {
         show_alert: true,
       });
       return;
@@ -315,16 +424,10 @@ export function startBot(): void {
     await ctx.answerCbQuery();
     ctx.session.state = "await_direction";
     await ctx.editMessageText(
-      `✅ *${selected.length} assets selected.*\n\n📊 Filter signal direction:`,
+      `✅ *${selected.length} asset(s) selected.*\n\n📊 Filter signal direction:`,
       {
         parse_mode: "Markdown",
-        ...Markup.inlineKeyboard([
-          [
-            Markup.button.callback("↕ Both", "dir_BOTH"),
-            Markup.button.callback("📈 CALL", "dir_CALL"),
-            Markup.button.callback("📉 PUT", "dir_PUT"),
-          ],
-        ]),
+        ...directionKeyboard(),
       },
     );
   });
@@ -339,12 +442,7 @@ export function startBot(): void {
         `Direction: *${dir}*\n\n⚙️ Select signal method:`,
         {
           parse_mode: "Markdown",
-          ...Markup.inlineKeyboard([
-            [
-              Markup.button.callback("🎲 Generate", "method_generate"),
-              Markup.button.callback("📋 Predefined", "method_predefined"),
-            ],
-          ]),
+          ...methodKeyboard(),
         },
       );
     });
@@ -357,8 +455,8 @@ export function startBot(): void {
 
       const assets = ctx.session.selectedAssets ?? [];
       const direction = ctx.session.direction ?? "BOTH";
-      const signals = generateSignals(assets, direction, method);
       const market = ctx.session.market ?? "real";
+      const signals = generateSignals(assets, direction, method);
 
       ctx.session.state = "idle";
 
