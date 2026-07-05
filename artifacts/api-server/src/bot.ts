@@ -53,53 +53,68 @@ const brokerSharedOtcAssets = [
 interface TZ { offset: number; label: string; flag: string; name: string }
 
 const TIMEZONES: TZ[] = [
-  { offset: -12, label: "UTC-12:00", flag: "🌐", name: "Baker Island" },
-  { offset: -11, label: "UTC-11:00", flag: "🌐", name: "American Samoa" },
-  { offset: -10, label: "UTC-10:00", flag: "🇺🇸", name: "Hawaii" },
-  { offset: -9,  label: "UTC-9:00",  flag: "🇺🇸", name: "Alaska" },
-  { offset: -8,  label: "UTC-8:00",  flag: "🇺🇸", name: "Los Angeles (PST)" },
-  { offset: -7,  label: "UTC-7:00",  flag: "🇺🇸", name: "Denver (MST)" },
-  { offset: -6,  label: "UTC-6:00",  flag: "🇺🇸", name: "Chicago (CST)" },
-  { offset: -5,  label: "UTC-5:00",  flag: "🇺🇸", name: "New York (EST)" },
-  { offset: -4,  label: "UTC-4:00",  flag: "🇨🇦", name: "Halifax" },
-  { offset: -3,  label: "UTC-3:00",  flag: "🇧🇷", name: "São Paulo" },
-  { offset: -2,  label: "UTC-2:00",  flag: "🌐", name: "Mid-Atlantic" },
-  { offset: -1,  label: "UTC-1:00",  flag: "🇵🇹", name: "Azores" },
-  { offset: 0,   label: "UTC+0:00",  flag: "🇬🇧", name: "London (GMT)" },
-  { offset: 1,   label: "UTC+1:00",  flag: "🇫🇷", name: "Paris (CET)" },
-  { offset: 2,   label: "UTC+2:00",  flag: "🇪🇬", name: "Cairo (EET)" },
-  { offset: 3,   label: "UTC+3:00",  flag: "🇷🇺", name: "Moscow (MSK)" },
-  { offset: 3.5, label: "UTC+3:30",  flag: "🇮🇷", name: "Tehran (IRST)" },
-  { offset: 4,   label: "UTC+4:00",  flag: "🇦🇪", name: "Dubai (GST)" },
-  { offset: 4.5, label: "UTC+4:30",  flag: "🇦🇫", name: "Kabul (AFT)" },
-  { offset: 5,   label: "UTC+5:00",  flag: "🇵🇰", name: "Karachi (PKT)" },
-  { offset: 5.5, label: "UTC+5:30",  flag: "🇮🇳", name: "India (IST)" },
-  { offset: 5.75,label: "UTC+5:45",  flag: "🇳🇵", name: "Kathmandu (NPT)" },
-  { offset: 6,   label: "UTC+6:00",  flag: "🇧🇩", name: "Dhaka (BST)" },
-  { offset: 6.5, label: "UTC+6:30",  flag: "🇲🇲", name: "Yangon (MMT)" },
-  { offset: 7,   label: "UTC+7:00",  flag: "🇹🇭", name: "Bangkok (ICT)" },
-  { offset: 8,   label: "UTC+8:00",  flag: "🇨🇳", name: "Beijing (CST)" },
-  { offset: 9,   label: "UTC+9:00",  flag: "🇯🇵", name: "Tokyo (JST)" },
-  { offset: 9.5, label: "UTC+9:30",  flag: "🇦🇺", name: "Adelaide (ACST)" },
-  { offset: 10,  label: "UTC+10:00", flag: "🇦🇺", name: "Sydney (AEST)" },
-  { offset: 11,  label: "UTC+11:00", flag: "🌐", name: "Solomon Islands" },
-  { offset: 12,  label: "UTC+12:00", flag: "🇳🇿", name: "Auckland (NZST)" },
+  { offset: -12,  label: "UTC-12:00", flag: "🌐", name: "Baker Island" },
+  { offset: -11,  label: "UTC-11:00", flag: "🌐", name: "American Samoa" },
+  { offset: -10,  label: "UTC-10:00", flag: "🇺🇸", name: "Hawaii" },
+  { offset: -9,   label: "UTC-9:00",  flag: "🇺🇸", name: "Alaska" },
+  { offset: -8,   label: "UTC-8:00",  flag: "🇺🇸", name: "Los Angeles (PST)" },
+  { offset: -7,   label: "UTC-7:00",  flag: "🇺🇸", name: "Denver (MST)" },
+  { offset: -6,   label: "UTC-6:00",  flag: "🇺🇸", name: "Chicago (CST)" },
+  { offset: -5,   label: "UTC-5:00",  flag: "🇺🇸", name: "New York (EST)" },
+  { offset: -4,   label: "UTC-4:00",  flag: "🇨🇦", name: "Halifax" },
+  { offset: -3,   label: "UTC-3:00",  flag: "🇧🇷", name: "São Paulo" },
+  { offset: -2,   label: "UTC-2:00",  flag: "🌐", name: "Mid-Atlantic" },
+  { offset: -1,   label: "UTC-1:00",  flag: "🇵🇹", name: "Azores" },
+  { offset: 0,    label: "UTC+0:00",  flag: "🇬🇧", name: "London (GMT)" },
+  { offset: 1,    label: "UTC+1:00",  flag: "🇫🇷", name: "Paris (CET)" },
+  { offset: 2,    label: "UTC+2:00",  flag: "🇪🇬", name: "Cairo (EET)" },
+  { offset: 3,    label: "UTC+3:00",  flag: "🇷🇺", name: "Moscow (MSK)" },
+  { offset: 3.5,  label: "UTC+3:30",  flag: "🇮🇷", name: "Tehran (IRST)" },
+  { offset: 4,    label: "UTC+4:00",  flag: "🇦🇪", name: "Dubai (GST)" },
+  { offset: 4.5,  label: "UTC+4:30",  flag: "🇦🇫", name: "Kabul (AFT)" },
+  { offset: 5,    label: "UTC+5:00",  flag: "🇵🇰", name: "Karachi (PKT)" },
+  { offset: 5.5,  label: "UTC+5:30",  flag: "🇮🇳", name: "India (IST)" },
+  { offset: 5.75, label: "UTC+5:45",  flag: "🇳🇵", name: "Kathmandu (NPT)" },
+  { offset: 6,    label: "UTC+6:00",  flag: "🇧🇩", name: "Dhaka (BST)" },
+  { offset: 6.5,  label: "UTC+6:30",  flag: "🇲🇲", name: "Yangon (MMT)" },
+  { offset: 7,    label: "UTC+7:00",  flag: "🇹🇭", name: "Bangkok (ICT)" },
+  { offset: 8,    label: "UTC+8:00",  flag: "🇨🇳", name: "Beijing (CST)" },
+  { offset: 9,    label: "UTC+9:00",  flag: "🇯🇵", name: "Tokyo (JST)" },
+  { offset: 9.5,  label: "UTC+9:30",  flag: "🇦🇺", name: "Adelaide (ACST)" },
+  { offset: 10,   label: "UTC+10:00", flag: "🇦🇺", name: "Sydney (AEST)" },
+  { offset: 11,   label: "UTC+11:00", flag: "🌐", name: "Solomon Islands" },
+  { offset: 12,   label: "UTC+12:00", flag: "🇳🇿", name: "Auckland (NZST)" },
 ];
 
-const DEFAULT_TZ = TIMEZONES[22]!; // UTC+6 Bangladesh
-const DEFAULT_TF = 1;
-const MIN_ASSETS = 1;
-const MAX_ASSETS = 5;
+const DEFAULT_TZ   = TIMEZONES[22]!; // UTC+6 Bangladesh
+const DEFAULT_TF   = 1;
+const MIN_ASSETS   = 1;
+const MAX_ASSETS   = 5;
 const SIGNAL_COUNTS = [5, 10, 15, 20, 50, 70];
+
+// ─── Access Store ─────────────────────────────────────────────────────────────
+// In-memory: persists while the process runs. Admin grants via /grant command.
+
+interface AccessEntry { expiresAt: number | null } // null = lifetime
+const accessStore = new Map<number, AccessEntry>();
+
+function hasAccess(userId: number): boolean {
+  if (ADMIN_CHAT_ID && userId.toString() === ADMIN_CHAT_ID.trim()) return true;
+  const entry = accessStore.get(userId);
+  if (!entry) return false;
+  if (entry.expiresAt === null) return true;
+  return Date.now() < entry.expiresAt;
+}
+
+function isAdmin(userId: number): boolean {
+  return !!ADMIN_CHAT_ID && userId.toString() === ADMIN_CHAT_ID.trim();
+}
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
 
 type MarketType = "real" | "quotex" | "po" | "iq" | "olymp";
 
-interface Settings {
-  timeframe: number;
-  timezone: TZ;
-}
+interface Settings { timeframe: number; timezone: TZ }
 
 interface SessionData {
   state: "idle" | "await_market" | "await_assets" | "await_dir_amount" | "await_settings_tf" | "await_settings_tz";
@@ -143,8 +158,13 @@ function formatAssetName(asset: string, market: MarketType): string {
     .trim() + "-OTC";
 }
 
-function tzDisplay(tz: TZ): string {
-  return `${tz.label} ${tz.flag}`;
+function tzDisplay(tz: TZ): string { return `${tz.label} ${tz.flag}`; }
+
+/** Returns true on Saturday or Sunday in the user's configured timezone */
+function isWeekend(tz: TZ): boolean {
+  const localMs = Date.now() + tz.offset * 3_600_000;
+  const day = new Date(localMs).getUTCDay(); // 0=Sun, 6=Sat
+  return day === 0 || day === 6;
 }
 
 // ─── Signal Generator ──────────────────────────────────────────────────────────
@@ -159,11 +179,11 @@ function buildSignalMessage(
   const isOtc = market !== "real";
   const { timeframe, timezone } = settings;
 
-  const nowMs = Date.now() + timezone.offset * 3600000;
-  const now = new Date(nowMs);
+  const nowMs = Date.now() + timezone.offset * 3_600_000;
+  const now   = new Date(nowMs);
 
-  const dd = pad2(now.getUTCDate());
-  const mm = pad2(now.getUTCMonth() + 1);
+  const dd   = pad2(now.getUTCDate());
+  const mm   = pad2(now.getUTCMonth() + 1);
   const yyyy = now.getUTCFullYear();
 
   const tfLabel = timeframe === 1 ? "1 MINUTE" : `${timeframe} MINUTES`;
@@ -185,24 +205,20 @@ function buildSignalMessage(
   ].join("\n");
 
   const blocks: string[] = [];
-
   for (const asset of assets) {
     const dir: "CALL" | "PUT" =
       direction === "BOTH" ? (Math.random() < 0.5 ? "CALL" : "PUT") : direction;
     const name = escapeHtml(formatAssetName(asset, market));
 
-    const startOffsetMs = (2 + Math.random()) * 60000;
+    const startOffsetMs = (2 + Math.random()) * 60_000;
     let cursor = new Date(nowMs + startOffsetMs);
     const times: string[] = [];
     for (let i = 0; i < signalCount; i++) {
       times.push(`${pad2(cursor.getUTCHours())}:${pad2(cursor.getUTCMinutes())}`);
-      cursor = new Date(cursor.getTime() + (2 + Math.floor(Math.random() * 3)) * 60000);
+      cursor = new Date(cursor.getTime() + (2 + Math.floor(Math.random() * 3)) * 60_000);
     }
 
-    const blockHeader = isOtc
-      ? `<b>▎${name}</b>`
-      : `<b>▎${name} ${dir}</b>`;
-
+    const blockHeader = isOtc ? `<b>▎${name}</b>` : `<b>▎${name} ${dir}</b>`;
     const lines = times.map(t => `<b>${t} ${name} ${dir}</b>`);
     blocks.push([blockHeader, ...lines].join("\n"));
   }
@@ -212,13 +228,55 @@ function buildSignalMessage(
 
 // ─── Keyboards ─────────────────────────────────────────────────────────────────
 
+const MAIN_MENU_TEXT = "🤖 <b>TG ADVANCE SIGNAL GENERATOR</b>\n\nWelcome! Choose an option below:";
+const MAIN_MENU_KB   = Markup.inlineKeyboard([[Markup.button.callback("🔮 FUTURE SIGNAL • TG", "futuresignal")]]);
+
+const PAYWALL_TEXT =
+  `🔒 <b>You Don't Have Access ⚠️</b>\n\n` +
+  `Buy Access to unlock <b>Advance Signal</b> all features,\n` +
+  `or Join our VIP to get <b>Free Advance Signals</b>.`;
+
+const PAYWALL_KB = Markup.inlineKeyboard([
+  [
+    Markup.button.url("💬 CHAT", "https://t.me/oawhidshakib"),
+    Markup.button.callback("💳 ACCESS BUY", "access_buy"),
+    Markup.button.url("⭐ VIP AUTO JOIN", "https://t.me/managementTG_bot"),
+  ],
+]);
+
+const PRICE_LIST_TEXT =
+  `💎 <b>Subscription Plans — Future Signal</b>\n` +
+  `<b>━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━</b>\n` +
+  `  <b>1 Day</b>          <code>$5</code>\n` +
+  `  <b>6 Days</b>        <code>$10</code>\n` +
+  `  <b>14 Days</b>      <code>$20</code>\n` +
+  `  <b>30 Days</b>      <code>$48</code>\n` +
+  `  <b>60 Days</b>      <code>$69</code>\n` +
+  `  <b>3 Months</b>    <code>$150</code>\n` +
+  `  <b>5 Months</b>    <code>$170</code>\n` +
+  `  <b>9 Months</b>    <code>$200</code>\n` +
+  `  <b>12 Months</b>  <code>$280</code>\n` +
+  `  <b>2 Years</b>      <code>$320</code>\n` +
+  `  <b>3 Years</b>      <code>$500</code>\n` +
+  `  <b>Lifetime</b>     <code>$919</code>\n` +
+  `<b>━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━</b>\n\n` +
+  `📩 Contact admin to purchase:`;
+
+const PRICE_LIST_KB = Markup.inlineKeyboard([
+  [
+    Markup.button.url("💬 CHAT", "https://t.me/oawhidshakib"),
+    Markup.button.url("⭐ VIP AUTO JOIN", "https://t.me/managementTG_bot"),
+  ],
+  [Markup.button.callback("🔙 Back", "paywall_back")],
+]);
+
 const marketKeyboard = Markup.inlineKeyboard([
-  [Markup.button.callback("🌍 Real Market", "market_real")],
-  [Markup.button.callback("📈 Quotex OTC", "market_quotex")],
-  [Markup.button.callback("💼 Pocket Option OTC", "market_po")],
-  [Markup.button.callback("📊 IQ Option OTC", "market_iq")],
-  [Markup.button.callback("🏦 Olymp Trade OTC", "market_olymp")],
-  [Markup.button.callback("🔙 Back", "back_to_menu")],
+  [Markup.button.callback("🌍 Real Market",         "market_real")],
+  [Markup.button.callback("📈 Quotex OTC",          "market_quotex")],
+  [Markup.button.callback("💼 Pocket Option OTC",   "market_po")],
+  [Markup.button.callback("📊 IQ Option OTC",       "market_iq")],
+  [Markup.button.callback("🏦 Olymp Trade OTC",     "market_olymp")],
+  [Markup.button.callback("🔙 Back",                "back_to_menu")],
 ]);
 
 function assetKeyboard(
@@ -231,11 +289,11 @@ function assetKeyboard(
   const rows: ReturnType<typeof Markup.button.callback>[][] = [];
   for (let i = 0; i < btns.length; i += 3) rows.push(btns.slice(i, i + 3));
   rows.push([
-    Markup.button.callback("✅ Done", "assets_done"),
-    Markup.button.callback("🔙 Back", "back_to_market"),
+    Markup.button.callback("✅ Done",              "assets_done"),
+    Markup.button.callback("🔙 Back",              "back_to_market"),
   ]);
   rows.push([Markup.button.callback("⚙️ Change Settings", "settings_open")]);
-  rows.push([Markup.button.callback("🌍 Timezone", "settings_tz_open")]);
+  rows.push([Markup.button.callback("🌍 Timezone",        "settings_tz_open")]);
   return Markup.inlineKeyboard(rows);
 }
 
@@ -245,10 +303,10 @@ function dirAmountKeyboard(dir: "BOTH" | "CALL" | "PUT"): ReturnType<typeof Mark
     [
       Markup.button.callback(`↕ Both${ck("BOTH")}`, "setdir_BOTH"),
       Markup.button.callback(`📈 CALL${ck("CALL")}`, "setdir_CALL"),
-      Markup.button.callback(`📉 PUT${ck("PUT")}`, "setdir_PUT"),
+      Markup.button.callback(`📉 PUT${ck("PUT")}`,   "setdir_PUT"),
     ],
     SIGNAL_COUNTS.slice(0, 3).map(n => Markup.button.callback(`${n}`, `sigcount_${n}`)),
-    SIGNAL_COUNTS.slice(3).map(n => Markup.button.callback(`${n}`, `sigcount_${n}`)),
+    SIGNAL_COUNTS.slice(3).map(n =>   Markup.button.callback(`${n}`, `sigcount_${n}`)),
     [Markup.button.callback("🔙 Back", "back_to_assets")],
   ]);
 }
@@ -268,11 +326,9 @@ function tzKeyboard(): ReturnType<typeof Markup.inlineKeyboard> {
   const rows: ReturnType<typeof Markup.button.callback>[][] = [];
   for (let i = 0; i < TIMEZONES.length; i += 2) {
     const row = [TIMEZONES[i]!, TIMEZONES[i + 1]].filter(Boolean) as TZ[];
-    rows.push(
-      row.map((tz, j) =>
-        Markup.button.callback(`${tz.flag} ${tz.label}`, `tz_${i + j}`)
-      )
-    );
+    rows.push(row.map((tz, j) =>
+      Markup.button.callback(`${tz.flag} ${tz.label}`, `tz_${i + j}`)
+    ));
   }
   rows.push([Markup.button.callback("🔙 Back", "back_to_settings")]);
   return Markup.inlineKeyboard(rows);
@@ -300,29 +356,29 @@ export function startBot(): void {
   );
 
   bot.telegram.setMyCommands([
-    { command: "start", description: "Start the bot" },
+    { command: "start",        description: "Start the bot" },
     { command: "futuresignal", description: "Generate future signals" },
-    { command: "help", description: "Show help" },
+    { command: "help",         description: "Show help" },
   ]).catch(() => {});
 
   // ── Helpers ────────────────────────────────────────────────────────────────
 
   async function sendMainMenu(ctx: MyContext): Promise<void> {
-    await ctx.reply(
-      "🤖 <b>TG ADVANCE SIGNAL GENERATOR</b>\n\nWelcome! Choose an option below:",
-      {
-        parse_mode: "HTML",
-        ...Markup.inlineKeyboard([
-          [Markup.button.callback("🔮 FUTURE SIGNAL • TG", "futuresignal")],
-        ]),
-      },
-    );
+    await ctx.reply(MAIN_MENU_TEXT, { parse_mode: "HTML", ...MAIN_MENU_KB });
+  }
+
+  async function showPaywall(ctx: MyContext, edit: boolean): Promise<void> {
+    if (edit) {
+      await ctx.editMessageText(PAYWALL_TEXT, { parse_mode: "HTML", ...PAYWALL_KB });
+    } else {
+      await ctx.reply(PAYWALL_TEXT, { parse_mode: "HTML", ...PAYWALL_KB });
+    }
   }
 
   function assetText(ctx: MyContext): string {
     const sel = ctx.session.selectedAssets;
-    const tf = ctx.session.settings.timeframe;
-    const tz = ctx.session.settings.timezone;
+    const tf  = ctx.session.settings.timeframe;
+    const tz  = ctx.session.settings.timezone;
     return (
       `📌 <b>Select assets</b> (min ${MIN_ASSETS}, max ${MAX_ASSETS})\n` +
       `⚙️ TF: <b>${tf}Min</b>  |  🌍 TZ: <b>${escapeHtml(tzDisplay(tz))}</b>\n\n` +
@@ -366,36 +422,85 @@ export function startBot(): void {
   });
 
   bot.command("futuresignal", async (ctx) => {
+    const uid = ctx.from?.id ?? 0;
+    if (!hasAccess(uid)) { await showPaywall(ctx, false); return; }
     ctx.session.state = "await_market";
-    await ctx.reply("📊 <b>Select Market Type:</b>", {
-      parse_mode: "HTML",
-      ...marketKeyboard,
+    await ctx.reply("📊 <b>Select Market Type:</b>", { parse_mode: "HTML", ...marketKeyboard });
+  });
+
+  // ── Admin commands ─────────────────────────────────────────────────────────
+
+  bot.command("grant", async (ctx) => {
+    const uid = ctx.from?.id ?? 0;
+    if (!isAdmin(uid)) return;
+    const parts = ctx.message.text.trim().split(/\s+/);
+    const targetId = parseInt(parts[1] ?? "", 10);
+    const param = parts[2] ?? "";
+    if (!targetId || !param) {
+      await ctx.reply("Usage: /grant &lt;userId&gt; &lt;days|lifetime&gt;", { parse_mode: "HTML" });
+      return;
+    }
+    if (param.toLowerCase() === "lifetime") {
+      accessStore.set(targetId, { expiresAt: null });
+      await ctx.reply(`✅ Lifetime access granted to <code>${targetId}</code>.`, { parse_mode: "HTML" });
+    } else {
+      const days = parseInt(param, 10);
+      if (!days || days <= 0) { await ctx.reply("Days must be a positive number."); return; }
+      const expiresAt = Date.now() + days * 86_400_000;
+      accessStore.set(targetId, { expiresAt });
+      const expStr = new Date(expiresAt).toUTCString();
+      await ctx.reply(`✅ <b>${days}-day</b> access granted to <code>${targetId}</code>.\nExpires: <code>${expStr}</code>`, { parse_mode: "HTML" });
+    }
+  });
+
+  bot.command("revoke", async (ctx) => {
+    const uid = ctx.from?.id ?? 0;
+    if (!isAdmin(uid)) return;
+    const parts = ctx.message.text.trim().split(/\s+/);
+    const targetId = parseInt(parts[1] ?? "", 10);
+    if (!targetId) { await ctx.reply("Usage: /revoke &lt;userId&gt;", { parse_mode: "HTML" }); return; }
+    accessStore.delete(targetId);
+    await ctx.reply(`✅ Access revoked for <code>${targetId}</code>.`, { parse_mode: "HTML" });
+  });
+
+  bot.command("listaccess", async (ctx) => {
+    const uid = ctx.from?.id ?? 0;
+    if (!isAdmin(uid)) return;
+    if (accessStore.size === 0) { await ctx.reply("No users have been granted access."); return; }
+    const lines = Array.from(accessStore.entries()).map(([id, e]) => {
+      const exp = e.expiresAt === null
+        ? "Lifetime ♾️"
+        : `Expires: ${new Date(e.expiresAt).toUTCString()} ${Date.now() < e.expiresAt ? "✅" : "❌ EXPIRED"}`;
+      return `<code>${id}</code> — ${exp}`;
     });
+    await ctx.reply(`<b>Access List (${accessStore.size}):</b>\n\n${lines.join("\n")}`, { parse_mode: "HTML" });
   });
 
   // ── Main actions ───────────────────────────────────────────────────────────
 
   bot.action("futuresignal", async (ctx) => {
     await ctx.answerCbQuery();
+    const uid = ctx.from?.id ?? 0;
+    if (!hasAccess(uid)) { await showPaywall(ctx, true); return; }
     ctx.session.state = "await_market";
-    await ctx.editMessageText("📊 <b>Select Market Type:</b>", {
-      parse_mode: "HTML",
-      ...marketKeyboard,
-    });
+    await ctx.editMessageText("📊 <b>Select Market Type:</b>", { parse_mode: "HTML", ...marketKeyboard });
   });
 
   bot.action("back_to_menu", async (ctx) => {
     await ctx.answerCbQuery();
     ctx.session.state = "idle";
-    await ctx.editMessageText(
-      "🤖 <b>TG ADVANCE SIGNAL GENERATOR</b>\n\nWelcome! Choose an option below:",
-      {
-        parse_mode: "HTML",
-        ...Markup.inlineKeyboard([
-          [Markup.button.callback("🔮 FUTURE SIGNAL • TG", "futuresignal")],
-        ]),
-      },
-    );
+    await ctx.editMessageText(MAIN_MENU_TEXT, { parse_mode: "HTML", ...MAIN_MENU_KB });
+  });
+
+  // Paywall actions
+  bot.action("access_buy", async (ctx) => {
+    await ctx.answerCbQuery();
+    await ctx.editMessageText(PRICE_LIST_TEXT, { parse_mode: "HTML", ...PRICE_LIST_KB });
+  });
+
+  bot.action("paywall_back", async (ctx) => {
+    await ctx.answerCbQuery();
+    await ctx.editMessageText(PAYWALL_TEXT, { parse_mode: "HTML", ...PAYWALL_KB });
   });
 
   // Market selection
@@ -403,6 +508,16 @@ export function startBot(): void {
   for (const m of markets) {
     bot.action(`market_${m}`, async (ctx) => {
       if (ctx.session.state !== "await_market") return;
+
+      // Weekend block for real market
+      if (m === "real" && isWeekend(ctx.session.settings.timezone)) {
+        await ctx.answerCbQuery(
+          "🚫 Real Market Closed — Weekend!\nMarket open Mon–Fri only. Use OTC instead.",
+          { show_alert: true },
+        );
+        return;
+      }
+
       await ctx.answerCbQuery();
       ctx.session.market = m;
       ctx.session.selectedAssets = [];
@@ -414,18 +529,15 @@ export function startBot(): void {
     await ctx.answerCbQuery();
     ctx.session.state = "await_market";
     ctx.session.selectedAssets = [];
-    await ctx.editMessageText("📊 <b>Select Market Type:</b>", {
-      parse_mode: "HTML",
-      ...marketKeyboard,
-    });
+    await ctx.editMessageText("📊 <b>Select Market Type:</b>", { parse_mode: "HTML", ...marketKeyboard });
   });
 
   // Asset toggling
   bot.action(/^asset_(.+)$/, async (ctx) => {
     if (ctx.session.state !== "await_assets") return;
     const asset = ctx.match[1];
-    const sel = ctx.session.selectedAssets;
-    const idx = sel.indexOf(asset);
+    const sel   = ctx.session.selectedAssets;
+    const idx   = sel.indexOf(asset);
     if (idx === -1) {
       if (sel.length >= MAX_ASSETS) {
         await ctx.answerCbQuery(`⚠️ Max ${MAX_ASSETS} assets!`, { show_alert: true });
@@ -438,10 +550,7 @@ export function startBot(): void {
       await ctx.answerCbQuery(`✖ ${asset}`);
     }
     const assets = getAssetsForMarket(ctx.session.market ?? "real");
-    await ctx.editMessageText(assetText(ctx), {
-      parse_mode: "HTML",
-      ...assetKeyboard(assets, sel),
-    });
+    await ctx.editMessageText(assetText(ctx), { parse_mode: "HTML", ...assetKeyboard(assets, sel) });
   });
 
   bot.action("assets_done", async (ctx) => {
@@ -454,13 +563,12 @@ export function startBot(): void {
     await showDirAmount(ctx);
   });
 
-  // Back to assets from dir/amount
   bot.action("back_to_assets", async (ctx) => {
     await ctx.answerCbQuery();
     await showAssets(ctx, true);
   });
 
-  // ── Direction selection (refreshes same panel) ─────────────────────────────
+  // ── Direction selection ────────────────────────────────────────────────────
 
   for (const dir of ["BOTH", "CALL", "PUT"] as const) {
     bot.action(`setdir_${dir}`, async (ctx) => {
@@ -484,13 +592,7 @@ export function startBot(): void {
       const { selectedAssets, direction, market, settings } = ctx.session;
       ctx.session.state = "idle";
 
-      const msg = buildSignalMessage(
-        selectedAssets,
-        direction,
-        market ?? "real",
-        count,
-        settings,
-      );
+      const msg = buildSignalMessage(selectedAssets, direction, market ?? "real", count, settings);
 
       const MAX_LEN = 4000;
       const chunks: string[] = [];
@@ -498,7 +600,7 @@ export function startBot(): void {
       while (rem.length > 0) {
         if (rem.length <= MAX_LEN) { chunks.push(rem); break; }
         const cut = rem.lastIndexOf("\n\n", MAX_LEN);
-        const at = cut > 0 ? cut : MAX_LEN;
+        const at  = cut > 0 ? cut : MAX_LEN;
         chunks.push(rem.slice(0, at));
         rem = rem.slice(at).trimStart();
       }
@@ -519,44 +621,31 @@ export function startBot(): void {
         `✅ <b>${count} signals × ${selectedAssets.length} pair(s)</b>\n⏱ <i>Auto-deleting in 10s…</i>`,
         {
           parse_mode: "HTML",
-          ...Markup.inlineKeyboard([
-            [Markup.button.callback("🏠 Home", "go_home")],
-          ]),
+          ...Markup.inlineKeyboard([[Markup.button.callback("🏠 Home", "go_home")]]),
         },
       );
       const summaryMsgId = summaryMsg.message_id;
-
-      const MENU_TEXT = "🤖 <b>TG ADVANCE SIGNAL GENERATOR</b>\n\nWelcome! Choose an option below:";
-      const MENU_KB = Markup.inlineKeyboard([[Markup.button.callback("🔮 FUTURE SIGNAL • TG", "futuresignal")]]);
 
       setTimeout(() => {
         for (const id of deleteMsgIds) {
           bot.telegram.deleteMessage(chatId, id).catch(() => {});
         }
         bot.telegram
-          .editMessageText(chatId, summaryMsgId, undefined, MENU_TEXT, {
+          .editMessageText(chatId, summaryMsgId, undefined, MAIN_MENU_TEXT, {
             parse_mode: "HTML",
-            ...MENU_KB,
+            ...MAIN_MENU_KB,
           })
           .catch(() => {});
         ctx.session.state = "idle";
-      }, 10000);
+      }, 10_000);
     });
   }
 
-  // Home button — replaces the summary message with main menu
+  // Home button
   bot.action("go_home", async (ctx) => {
     await ctx.answerCbQuery();
     ctx.session.state = "idle";
-    await ctx.editMessageText(
-      "🤖 <b>TG ADVANCE SIGNAL GENERATOR</b>\n\nWelcome! Choose an option below:",
-      {
-        parse_mode: "HTML",
-        ...Markup.inlineKeyboard([
-          [Markup.button.callback("🔮 FUTURE SIGNAL • TG", "futuresignal")],
-        ]),
-      },
-    );
+    await ctx.editMessageText(MAIN_MENU_TEXT, { parse_mode: "HTML", ...MAIN_MENU_KB });
   });
 
   // ── Settings: Timeframe ────────────────────────────────────────────────────
@@ -606,7 +695,7 @@ export function startBot(): void {
 
   bot.action(/^tz_(\d+)$/, async (ctx) => {
     const idx = parseInt(ctx.match[1], 10);
-    const tz = TIMEZONES[idx];
+    const tz  = TIMEZONES[idx];
     if (!tz) return;
     ctx.session.settings.timezone = tz;
     await ctx.answerCbQuery(`✓ ${tzDisplay(tz)} saved`);
@@ -630,7 +719,7 @@ export function startBot(): void {
     logger.error({ err }, "Failed to launch Telegram bot");
   });
 
-  process.once("SIGINT", () => bot.stop("SIGINT"));
+  process.once("SIGINT",  () => bot.stop("SIGINT"));
   process.once("SIGTERM", () => bot.stop("SIGTERM"));
 
   if (ADMIN_CHAT_ID) {
