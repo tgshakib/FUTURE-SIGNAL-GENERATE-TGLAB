@@ -8,13 +8,22 @@ const realAssets = [
   "EURUSD", "EURGBP", "USDJPY", "GBPUSD", "AUDCAD", "GBPCHF", "CADJPY",
 ];
 
-const otcAssets = [
+const quotexOtcAssets = [
   "NZDCAD-OTC", "NZDCHF-OTC", "EURCHF-OTC", "CADCHF-OTC", "EURAUD-OTC",
   "AUDCHF-OTC", "USDMXN-OTC", "USDBRL-OTC", "USDARS-OTC", "USDCHF-OTC",
   "USDCOP-OTC", "AUDNZD-OTC", "NZDUSD-OTC", "NZDJPY-OTC", "GBPNZD-OTC",
   "USDIDR-OTC", "USDINR-OTC", "USDNGN-OTC", "USDPHP-OTC", "USDBDT-OTC",
   "USDDZD-OTC", "USDTRY-OTC", "USDEGP-OTC", "USDZAR-OTC", "AUDUSD-OTC",
   "EURCAD-OTC", "GBPAUD-OTC", "EURNZD-OTC",
+];
+
+const pocketOptionOtcAssets = [
+  "EURUSD-PO", "GBPUSD-PO", "USDJPY-PO", "AUDUSD-PO", "USDCAD-PO",
+  "USDCHF-PO", "EURGBP-PO", "EURJPY-PO", "GBPJPY-PO", "CADJPY-PO",
+  "AUDCAD-PO", "NZDUSD-PO", "EURCHF-PO", "AUDCHF-PO", "CADCHF-PO",
+  "GBPCHF-PO", "AUDJPY-PO", "CHFJPY-PO", "EURAUD-PO", "GBPAUD-PO",
+  "EURCAD-PO", "GBPCAD-PO", "AUDNZD-PO", "NZDCAD-PO", "NZDCHF-PO",
+  "NZDJPY-PO", "GBPNZD-PO", "EURNZD-PO",
 ];
 
 const predefinedSignals: { asset: string; direction: "CALL" | "PUT" }[] = [
@@ -37,11 +46,21 @@ const predefinedSignals: { asset: string; direction: "CALL" | "PUT" }[] = [
   { asset: "USDEGP-OTC", direction: "PUT" },
   { asset: "USDNGN-OTC", direction: "CALL" },
   { asset: "NZDCAD-OTC", direction: "CALL" },
+  { asset: "EURUSD-PO", direction: "CALL" },
+  { asset: "GBPUSD-PO", direction: "PUT" },
+  { asset: "USDJPY-PO", direction: "CALL" },
+  { asset: "AUDUSD-PO", direction: "PUT" },
+  { asset: "USDCAD-PO", direction: "CALL" },
+  { asset: "EURJPY-PO", direction: "PUT" },
+  { asset: "GBPJPY-PO", direction: "CALL" },
+  { asset: "NZDUSD-PO", direction: "PUT" },
 ];
+
+type MarketType = "real" | "quotex" | "po";
 
 interface SessionData {
   state: "idle" | "await_market" | "await_assets" | "await_direction" | "await_method";
-  market?: "real" | "otc";
+  market?: MarketType;
   selectedAssets?: string[];
   direction?: "BOTH" | "CALL" | "PUT";
   method?: "generate" | "predefined";
@@ -53,6 +72,18 @@ type MyContext = import("telegraf").Context & {
 
 function pad2(n: number): string {
   return n.toString().padStart(2, "0");
+}
+
+function getAssetsForMarket(market: MarketType): string[] {
+  if (market === "real") return realAssets;
+  if (market === "quotex") return quotexOtcAssets;
+  return pocketOptionOtcAssets;
+}
+
+function marketLabel(market: MarketType): string {
+  if (market === "real") return "REAL MARKET";
+  if (market === "quotex") return "QUOTEX OTC";
+  return "POCKET OPTION OTC";
 }
 
 function generateSignals(
@@ -105,20 +136,20 @@ async function sendMainMenu(ctx: MyContext): Promise<void> {
   );
 }
 
-async function startSignalFlow(ctx: MyContext): Promise<void> {
-  ctx.session.state = "await_market";
-  await ctx.reply(
-    "📊 *Select Market Type:*",
-    {
-      parse_mode: "Markdown",
-      ...Markup.inlineKeyboard([
-        [
-          Markup.button.callback("🌍 Real Market", "market_real"),
-          Markup.button.callback("📈 QUOTEX OTC", "market_otc"),
-        ],
-      ]),
-    },
-  );
+function buildAssetKeyboard(
+  assets: string[],
+  selected: string[],
+): ReturnType<typeof Markup.inlineKeyboard> {
+  const buttons = assets.map((a) => {
+    const isSelected = selected.includes(a);
+    return Markup.button.callback(isSelected ? `✔ ${a}` : a, `asset_${a}`);
+  });
+  const rows: ReturnType<typeof Markup.button.callback>[][] = [];
+  for (let i = 0; i < buttons.length; i += 3) {
+    rows.push(buttons.slice(i, i + 3));
+  }
+  rows.push([Markup.button.callback("✅ Done selecting", "assets_done")]);
+  return Markup.inlineKeyboard(rows);
 }
 
 export function startBot(): void {
@@ -157,52 +188,69 @@ export function startBot(): void {
   });
 
   bot.command("futuresignal", async (ctx) => {
-    await startSignalFlow(ctx);
+    ctx.session.state = "await_market";
+    await ctx.reply(
+      "📊 *Select Market Type:*",
+      {
+        parse_mode: "Markdown",
+        ...Markup.inlineKeyboard([
+          [Markup.button.callback("🌍 Real Market", "market_real")],
+          [Markup.button.callback("📈 Quotex OTC", "market_quotex")],
+          [Markup.button.callback("💼 Pocket Option OTC", "market_po")],
+        ]),
+      },
+    );
   });
 
   bot.action("futuresignal", async (ctx) => {
     await ctx.answerCbQuery();
-    await startSignalFlow(ctx);
+    ctx.session.state = "await_market";
+    await ctx.editMessageText(
+      "📊 *Select Market Type:*",
+      {
+        parse_mode: "Markdown",
+        ...Markup.inlineKeyboard([
+          [Markup.button.callback("🌍 Real Market", "market_real")],
+          [Markup.button.callback("📈 Quotex OTC", "market_quotex")],
+          [Markup.button.callback("💼 Pocket Option OTC", "market_po")],
+        ]),
+      },
+    );
   });
+
+  async function handleMarketSelect(
+    ctx: MyContext,
+    market: MarketType,
+  ): Promise<void> {
+    ctx.session.market = market;
+    ctx.session.state = "await_assets";
+    ctx.session.selectedAssets = [];
+    const assets = getAssetsForMarket(market);
+    await ctx.editMessageText(
+      "📌 *Select assets* (tap to toggle, then press Done):\n\n_Selected: none_",
+      {
+        parse_mode: "Markdown",
+        ...buildAssetKeyboard(assets, []),
+      },
+    );
+  }
 
   bot.action("market_real", async (ctx) => {
     if (ctx.session.state !== "await_market") return;
-    ctx.session.market = "real";
-    ctx.session.state = "await_assets";
-    ctx.session.selectedAssets = [];
     await ctx.answerCbQuery();
-    const buttons = realAssets.map((a) =>
-      Markup.button.callback(a, `asset_${a}`),
-    );
-    const rows: ReturnType<typeof Markup.button.callback>[][] = [];
-    for (let i = 0; i < buttons.length; i += 3) {
-      rows.push(buttons.slice(i, i + 3));
-    }
-    rows.push([Markup.button.callback("✅ Done selecting", "assets_done")]);
-    await ctx.editMessageText(
-      "📌 *Select assets* (tap to toggle, then press Done):\n\n_Selected: none_",
-      { parse_mode: "Markdown", ...Markup.inlineKeyboard(rows) },
-    );
+    await handleMarketSelect(ctx, "real");
   });
 
-  bot.action("market_otc", async (ctx) => {
+  bot.action("market_quotex", async (ctx) => {
     if (ctx.session.state !== "await_market") return;
-    ctx.session.market = "otc";
-    ctx.session.state = "await_assets";
-    ctx.session.selectedAssets = [];
     await ctx.answerCbQuery();
-    const buttons = otcAssets.map((a) =>
-      Markup.button.callback(a, `asset_${a}`),
-    );
-    const rows: ReturnType<typeof Markup.button.callback>[][] = [];
-    for (let i = 0; i < buttons.length; i += 3) {
-      rows.push(buttons.slice(i, i + 3));
-    }
-    rows.push([Markup.button.callback("✅ Done selecting", "assets_done")]);
-    await ctx.editMessageText(
-      "📌 *Select assets* (tap to toggle, then press Done):\n\n_Selected: none_",
-      { parse_mode: "Markdown", ...Markup.inlineKeyboard(rows) },
-    );
+    await handleMarketSelect(ctx, "quotex");
+  });
+
+  bot.action("market_po", async (ctx) => {
+    if (ctx.session.state !== "await_market") return;
+    await ctx.answerCbQuery();
+    await handleMarketSelect(ctx, "po");
   });
 
   bot.action(/^asset_(.+)$/, async (ctx) => {
@@ -218,22 +266,15 @@ export function startBot(): void {
     }
 
     const selected = ctx.session.selectedAssets;
-    const assets = ctx.session.market === "real" ? realAssets : otcAssets;
+    const assets = getAssetsForMarket(ctx.session.market ?? "real");
 
-    const buttons = assets.map((a) => {
-      const isSelected = selected.includes(a);
-      return Markup.button.callback(isSelected ? `✔ ${a}` : a, `asset_${a}`);
-    });
-    const rows: ReturnType<typeof Markup.button.callback>[][] = [];
-    for (let i = 0; i < buttons.length; i += 3) {
-      rows.push(buttons.slice(i, i + 3));
-    }
-    rows.push([Markup.button.callback("✅ Done selecting", "assets_done")]);
-
-    await ctx.answerCbQuery(idx === -1 ? `Added: ${asset}` : `Removed: ${asset}`);
+    await ctx.answerCbQuery(idx === -1 ? `✔ ${asset}` : `✖ ${asset}`);
     await ctx.editMessageText(
       `📌 *Select assets* (tap to toggle, then press Done):\n\n_Selected: ${selected.length > 0 ? selected.join(", ") : "none"}_`,
-      { parse_mode: "Markdown", ...Markup.inlineKeyboard(rows) },
+      {
+        parse_mode: "Markdown",
+        ...buildAssetKeyboard(assets, selected),
+      },
     );
   });
 
@@ -291,6 +332,7 @@ export function startBot(): void {
       const assets = ctx.session.selectedAssets ?? [];
       const direction = ctx.session.direction ?? "BOTH";
       const signals = generateSignals(assets, direction, method);
+      const market = ctx.session.market ?? "real";
 
       ctx.session.state = "idle";
 
@@ -309,7 +351,7 @@ export function startBot(): void {
       const header =
         `🚀 *TG ADVANCE SIGNAL GENERATOR*\n` +
         `📅 ${new Date().toUTCString()}\n` +
-        `Market: *${ctx.session.market?.toUpperCase()}* | Direction: *${direction}*\n` +
+        `Market: *${marketLabel(market)}* | Direction: *${direction}*\n` +
         `━━━━━━━━━━━━━━━━━━━━\n`;
 
       const chunkSize = 20;
