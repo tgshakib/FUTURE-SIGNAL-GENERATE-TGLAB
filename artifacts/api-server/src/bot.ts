@@ -52,59 +52,13 @@ const brokerSharedOtcAssets = [
   "NZD/JPY OTC",
 ];
 
-const predefinedSignals: { asset: string; direction: "CALL" | "PUT" }[] = [
-  { asset: "EUR/USD", direction: "CALL" },
-  { asset: "GBP/USD", direction: "PUT" },
-  { asset: "USD/JPY", direction: "CALL" },
-  { asset: "AUD/USD", direction: "PUT" },
-  { asset: "USD/CAD", direction: "CALL" },
-  { asset: "EUR/JPY", direction: "PUT" },
-  { asset: "GBP/JPY", direction: "CALL" },
-  { asset: "EUR/GBP", direction: "PUT" },
-  { asset: "AUD/CAD", direction: "CALL" },
-  { asset: "CHF/JPY", direction: "PUT" },
-  { asset: "Gold", direction: "CALL" },
-  { asset: "Silver", direction: "PUT" },
-  { asset: "USD/MXN (OTC)", direction: "PUT" },
-  { asset: "USD/COP (OTC)", direction: "CALL" },
-  { asset: "USD/IDR (OTC)", direction: "PUT" },
-  { asset: "USD/EGP (OTC)", direction: "CALL" },
-  { asset: "USD/ARS (OTC)", direction: "CALL" },
-  { asset: "USD/PHP (OTC)", direction: "CALL" },
-  { asset: "USD/DZD (OTC)", direction: "PUT" },
-  { asset: "USD/NGN (OTC)", direction: "PUT" },
-  { asset: "USD/INR (OTC)", direction: "CALL" },
-  { asset: "USD/BRL (OTC)", direction: "CALL" },
-  { asset: "USD/BDT (OTC)", direction: "PUT" },
-  { asset: "USD/ZAR (OTC)", direction: "PUT" },
-  { asset: "Bitcoin (OTC)", direction: "CALL" },
-  { asset: "Ethereum (OTC)", direction: "PUT" },
-  { asset: "Solana (OTC)", direction: "CALL" },
-  { asset: "Gold (OTC)", direction: "CALL" },
-  { asset: "NZD/CAD (OTC)", direction: "CALL" },
-  { asset: "Solana OTC", direction: "CALL" },
-  { asset: "Gold OTC", direction: "CALL" },
-  { asset: "BNB OTC", direction: "PUT" },
-  { asset: "Toncoin OTC", direction: "CALL" },
-  { asset: "Microsoft OTC", direction: "CALL" },
-  { asset: "Netflix OTC", direction: "PUT" },
-  { asset: "EUR/JPY OTC", direction: "CALL" },
-  { asset: "GBP/JPY OTC", direction: "PUT" },
-  { asset: "USD/CHF OTC", direction: "CALL" },
-  { asset: "AUD/CAD OTC", direction: "PUT" },
-  { asset: "USD/SGD OTC", direction: "CALL" },
-  { asset: "Gold OTC", direction: "CALL" },
-  { asset: "Litecoin OTC", direction: "PUT" },
-];
-
 type MarketType = "real" | "quotex" | "po" | "iq" | "olymp";
 
 interface SessionData {
-  state: "idle" | "await_market" | "await_assets" | "await_direction" | "await_method";
+  state: "idle" | "await_market" | "await_assets" | "await_direction";
   market?: MarketType;
   selectedAssets?: string[];
   direction?: "BOTH" | "CALL" | "PUT";
-  method?: "generate" | "predefined";
 }
 
 type MyContext = import("telegraf").Context & {
@@ -113,6 +67,7 @@ type MyContext = import("telegraf").Context & {
 
 const MIN_ASSETS = 1;
 const MAX_ASSETS = 5;
+const SIGNALS_PER_ASSET = 19;
 
 function pad2(n: number): string {
   return n.toString().padStart(2, "0");
@@ -135,42 +90,88 @@ function marketLabel(market: MarketType): string {
   return labels[market];
 }
 
-function generateSignals(
+function formatAssetName(asset: string, market: MarketType): string {
+  if (market === "real") {
+    return asset.replace(/\//g, "");
+  }
+  const name = asset
+    .replace(/\s*\(OTC\)\s*/gi, "")
+    .replace(/\s+OTC\s*$/gi, "")
+    .replace(/\//g, "")
+    .replace(/\s+/g, "")
+    .trim();
+  return `${name}-OTC`;
+}
+
+function buildSignalMessage(
   assets: string[],
   direction: "BOTH" | "CALL" | "PUT",
-  method: "generate" | "predefined",
-): string[] {
-  const signals: string[] = [];
-  const now = new Date();
+  market: MarketType,
+): string {
+  const isOtc = market !== "real";
 
-  if (method === "generate") {
-    for (let i = 0; i < 12; i++) {
-      for (const asset of assets) {
-        const time = new Date(now.getTime() + i * 5 * 60000);
-        const dir: "CALL" | "PUT" = Math.random() < 0.5 ? "CALL" : "PUT";
-        if (direction === "BOTH" || dir === direction) {
-          signals.push(
-            `🕐 ${pad2(time.getHours())}:${pad2(time.getMinutes())}  |  ${asset}  |  ${dir === "CALL" ? "📈 CALL" : "📉 PUT"}`,
-          );
-        }
-      }
+  const nowUtc = new Date();
+  const utc6Offset = 6 * 60 * 60 * 1000;
+  const nowBD = new Date(nowUtc.getTime() + utc6Offset);
+
+  const dd = pad2(nowBD.getUTCDate());
+  const mm = pad2(nowBD.getUTCMonth() + 1);
+  const yyyy = nowBD.getUTCFullYear();
+
+  const header = [
+    `━━━━━━━━━・━━━━━━━━━`,
+    `            𝗗𝗮𝘁𝗲: ${dd}/${mm}/${yyyy}`,
+    `  𝗧𝗶𝗺𝗲 𝗭𝗼𝗻𝗲: +6:00 🇧🇩`,
+    `𝗘𝘅𝗽𝗶𝗿𝘆 𝗧𝗶𝗺𝗲: 1 MINUTES LIST`,
+    `𝗠𝗮𝗿𝘁𝗶𝗻𝗴𝗮𝗹𝗲: 1 STEP MTG`,
+    `(IF LOSS THEN USE ONE STEP AUTO MTG)`,
+    `Market: ${marketLabel(market)}`,
+    `•••••••••••••••••••••••••••••••••••••••`,
+    ` Community @TRADERGUIDE_BOT`,
+    `•••••••••••••••••••••••••••••••••••••••`,
+    ``,
+    `     1𝗠𝗶𝗻𝘂𝘁𝗲𝘀`,
+    ``,
+  ].join("\n");
+
+  const assetBlocks: string[] = [];
+
+  for (const asset of assets) {
+    const dir: "CALL" | "PUT" =
+      direction === "BOTH"
+        ? Math.random() < 0.5
+          ? "CALL"
+          : "PUT"
+        : direction;
+
+    const displayName = formatAssetName(asset, market);
+
+    const startMinutesFromNow = 1 + Math.floor(Math.random() * 5);
+    let cursor = new Date(
+      nowBD.getTime() + startMinutesFromNow * 60000,
+    );
+
+    const times: string[] = [];
+    for (let i = 0; i < SIGNALS_PER_ASSET; i++) {
+      times.push(
+        `${pad2(cursor.getUTCHours())}:${pad2(cursor.getUTCMinutes())}`,
+      );
+      const interval = 7 + Math.floor(Math.random() * 7);
+      cursor = new Date(cursor.getTime() + interval * 60000);
     }
-  } else {
-    for (const s of predefinedSignals) {
-      if (
-        assets.includes(s.asset) &&
-        (direction === "BOTH" || s.direction === direction)
-      ) {
-        const hour = 14 + Math.floor(Math.random() * 10);
-        const min = Math.floor(Math.random() * 60);
-        signals.push(
-          `🕐 ${pad2(hour)}:${pad2(min)}  |  ${s.asset}  |  ${s.direction === "CALL" ? "📈 CALL" : "📉 PUT"}`,
-        );
-      }
+
+    if (isOtc) {
+      const blockHeader = `▎${displayName}`;
+      const lines = times.map((t) => `${t} ${displayName} ${dir}`);
+      assetBlocks.push([blockHeader, ...lines].join("\n"));
+    } else {
+      const blockHeader = `▎${displayName} ${dir}`;
+      const lines = times.map((t) => `${t} ${displayName} ${dir}`);
+      assetBlocks.push([blockHeader, ...lines].join("\n"));
     }
   }
 
-  return signals;
+  return header + assetBlocks.join("\n\n");
 }
 
 const marketKeyboard = Markup.inlineKeyboard([
@@ -209,16 +210,6 @@ function directionKeyboard(): ReturnType<typeof Markup.inlineKeyboard> {
       Markup.button.callback("📉 PUT", "dir_PUT"),
     ],
     [Markup.button.callback("🔙 Back", "back_to_assets")],
-  ]);
-}
-
-function methodKeyboard(): ReturnType<typeof Markup.inlineKeyboard> {
-  return Markup.inlineKeyboard([
-    [
-      Markup.button.callback("🎲 Generate", "method_generate"),
-      Markup.button.callback("📋 Predefined", "method_predefined"),
-    ],
-    [Markup.button.callback("🔙 Back", "back_to_direction")],
   ]);
 }
 
@@ -324,20 +315,10 @@ export function startBot(): void {
     );
   });
 
-  bot.action("back_to_direction", async (ctx) => {
-    await ctx.answerCbQuery();
-    ctx.session.state = "await_direction";
-    const selected = ctx.session.selectedAssets ?? [];
-    await ctx.editMessageText(
-      `✅ *${selected.length} asset(s) selected.*\n\n📊 Filter signal direction:`,
-      {
-        parse_mode: "Markdown",
-        ...directionKeyboard(),
-      },
-    );
-  });
-
-  async function handleMarketSelect(ctx: MyContext, market: MarketType): Promise<void> {
+  async function handleMarketSelect(
+    ctx: MyContext,
+    market: MarketType,
+  ): Promise<void> {
     ctx.session.market = market;
     ctx.session.state = "await_assets";
     ctx.session.selectedAssets = [];
@@ -356,25 +337,21 @@ export function startBot(): void {
     await ctx.answerCbQuery();
     await handleMarketSelect(ctx, "real");
   });
-
   bot.action("market_quotex", async (ctx) => {
     if (ctx.session.state !== "await_market") return;
     await ctx.answerCbQuery();
     await handleMarketSelect(ctx, "quotex");
   });
-
   bot.action("market_po", async (ctx) => {
     if (ctx.session.state !== "await_market") return;
     await ctx.answerCbQuery();
     await handleMarketSelect(ctx, "po");
   });
-
   bot.action("market_iq", async (ctx) => {
     if (ctx.session.state !== "await_market") return;
     await ctx.answerCbQuery();
     await handleMarketSelect(ctx, "iq");
   });
-
   bot.action("market_olymp", async (ctx) => {
     if (ctx.session.state !== "await_market") return;
     await ctx.answerCbQuery();
@@ -435,62 +412,34 @@ export function startBot(): void {
   for (const dir of ["BOTH", "CALL", "PUT"] as const) {
     bot.action(`dir_${dir}`, async (ctx) => {
       if (ctx.session.state !== "await_direction") return;
-      ctx.session.direction = dir;
-      ctx.session.state = "await_method";
-      await ctx.answerCbQuery();
-      await ctx.editMessageText(
-        `Direction: *${dir}*\n\n⚙️ Select signal method:`,
-        {
-          parse_mode: "Markdown",
-          ...methodKeyboard(),
-        },
-      );
-    });
-  }
-
-  for (const method of ["generate", "predefined"] as const) {
-    bot.action(`method_${method}`, async (ctx) => {
-      if (ctx.session.state !== "await_method") return;
-      await ctx.answerCbQuery();
+      await ctx.answerCbQuery("⏳ Generating signals...");
 
       const assets = ctx.session.selectedAssets ?? [];
-      const direction = ctx.session.direction ?? "BOTH";
       const market = ctx.session.market ?? "real";
-      const signals = generateSignals(assets, direction, method);
-
       ctx.session.state = "idle";
 
-      if (signals.length === 0) {
-        await ctx.editMessageText(
-          "⚠️ No signals matched your filters. Tap the button below to try again.",
-          {
-            ...Markup.inlineKeyboard([
-              [Markup.button.callback("🔮 FUTURE SIGNAL • TG", "futuresignal")],
-            ]),
-          },
-        );
-        return;
-      }
+      const signalText = buildSignalMessage(assets, dir, market);
 
-      const header =
-        `🚀 *TG ADVANCE SIGNAL GENERATOR*\n` +
-        `📅 ${new Date().toUTCString()}\n` +
-        `Market: *${marketLabel(market)}* | Direction: *${direction}*\n` +
-        `━━━━━━━━━━━━━━━━━━━━\n`;
-
-      const chunkSize = 20;
-      for (let i = 0; i < signals.length; i += chunkSize) {
-        const chunk = signals.slice(i, i + chunkSize);
-        const body = chunk.join("\n");
-        if (i === 0) {
-          await ctx.editMessageText(header + body, { parse_mode: "Markdown" });
-        } else {
-          await ctx.reply(body, { parse_mode: "Markdown" });
+      const MAX_LEN = 4000;
+      if (signalText.length <= MAX_LEN) {
+        await ctx.editMessageText(signalText);
+      } else {
+        const parts: string[] = [];
+        let remaining = signalText;
+        while (remaining.length > 0) {
+          const cut = remaining.lastIndexOf("\n\n", MAX_LEN);
+          const splitAt = cut > 0 && remaining.length > MAX_LEN ? cut : Math.min(MAX_LEN, remaining.length);
+          parts.push(remaining.slice(0, splitAt));
+          remaining = remaining.slice(splitAt).trimStart();
+        }
+        await ctx.editMessageText(parts[0]!);
+        for (let i = 1; i < parts.length; i++) {
+          await ctx.reply(parts[i]!);
         }
       }
 
       await ctx.reply(
-        `✅ *${signals.length} signals generated.*`,
+        `✅ *${assets.length} pair(s) — ${SIGNALS_PER_ASSET} signals each.*`,
         {
           parse_mode: "Markdown",
           ...Markup.inlineKeyboard([
