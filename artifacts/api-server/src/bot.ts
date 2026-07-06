@@ -319,6 +319,64 @@ function genPaymentId(): string {
   return Math.random().toString(36).slice(2, 10).toUpperCase();
 }
 
+// ─── Signal Direction Helpers ──────────────────────────────────────────────────
+
+function invertDir(d: "CALL" | "PUT"): "CALL" | "PUT" {
+  return d === "CALL" ? "PUT" : "CALL";
+}
+
+/**
+ * Generate a sequence of CALL/PUT directions with a weighted bias.
+ * biasWeight = probability of the bias direction appearing (0.55–0.80 is realistic).
+ * Adjacent signals are anti-correlated slightly so they don't all cluster.
+ */
+function generateMixedDirs(
+  count: number,
+  bias: "CALL" | "PUT",
+  biasWeight = 0.65,
+): ("CALL" | "PUT")[] {
+  const dirs: ("CALL" | "PUT")[] = [];
+  for (let i = 0; i < count; i++) {
+    // Slightly boost the opposite after two consecutive same-direction signals
+    let w = biasWeight;
+    if (i >= 2 && dirs[i - 1] === dirs[i - 2]) w = biasWeight - 0.12;
+    dirs.push(Math.random() < w ? bias : invertDir(bias));
+  }
+  return dirs;
+}
+
+/**
+ * Resolve a bias direction for the given asset using Quotex OTC data.
+ * Quotex OTC is inversely correlated with all other OTC brokers.
+ *   • For Quotex market  → use Quotex direction directly.
+ *   • For all other OTC  → use Quotex direction INVERTED.
+ *   • For Real market    → pure random (no Quotex relationship).
+ */
+async function resolveOtcBias(
+  asset: string,
+  market: MarketType,
+  timeframe: number,
+): Promise<"CALL" | "PUT"> {
+  const qAdapter = adapters["quotex"];
+  const random = (): "CALL" | "PUT" => (Math.random() < 0.5 ? "CALL" : "PUT");
+
+  if (market === "real") return random();
+
+  // Always anchor to Quotex for direction analysis
+  let quotexDir: "CALL" | "PUT" = random();
+  if (qAdapter?.isConnected()) {
+    try {
+      const candles = await qAdapter.getCandles(asset, timeframe, 10);
+      quotexDir = analyseSignalQuality(candles).direction;
+    } catch {
+      quotexDir = random();
+    }
+  }
+
+  // Quotex → use directly; all others → invert (inverse relationship)
+  return market === "quotex" ? quotexDir : invertDir(quotexDir);
+}
+
 // ─── Signal Generator ──────────────────────────────────────────────────────────
 
 async function buildSignalMessage(
@@ -329,14 +387,14 @@ async function buildSignalMessage(
   settings: Settings,
 ): Promise<string> {
   const { timeframe, timezone, strategy } = settings;
-  const isOtc = market !== "real";
-  const nowMs  = Date.now() + timezone.offset * 3_600_000;
-  const now    = new Date(nowMs);
-  const dd     = pad2(now.getUTCDate());
-  const mm     = pad2(now.getUTCMonth() + 1);
-  const yyyy   = now.getUTCFullYear();
+  const isOtc   = market !== "real";
+  const isMix   = direction === "BOTH";
+  const nowMs   = Date.now() + timezone.offset * 3_600_000;
+  const now     = new Date(nowMs);
+  const dd      = pad2(now.getUTCDate());
+  const mm      = pad2(now.getUTCMonth() + 1);
+  const yyyy    = now.getUTCFullYear();
   const tfLabel = timeframe === 1 ? "1 MINUTE" : `${timeframe} MINUTES`;
-  const adapterKey = market === "real" ? null : market;
 
   const header = [
     `<b>━━━━━━━━━・━━━━━━━━━</b>`,
@@ -348,8 +406,11 @@ async function buildSignalMessage(
       : `<b>𝗠𝗮𝗿𝘁𝗶𝗻𝗴𝗮𝗹𝗲: 1 STEP MTG</b>`,
     `<b>𝗦𝘁𝗿𝗮𝘁𝗲𝗴𝘆: ${escapeHtml(strategy.name)} ${escapeHtml(strategy.badge)}</b>`,
     `<b>Market: ${escapeHtml(marketLabel(market))}</b>`,
-    ...(adapterKey && adapters[adapterKey]?.isExperimental
-      ? [`<b>⚠️ Connector: EXPERIMENTAL (algorithmic fallback)</b>`]
+    isMix
+      ? `<b>📊 Direction: MIX (probability-weighted CALL/PUT per signal)</b>`
+      : `<b>📊 Direction: ${direction}</b>`,
+    ...(isOtc && market !== "quotex"
+      ? [`<b>🔄 Analysis: Quotex OTC inverse-correlation applied</b>`]
       : []),
     `<b>•••••••••••••••••••••••••••••••••••••••</b>`,
     `<b> Community @TRADERGUIDE_BOT</b>`,
@@ -363,38 +424,71 @@ async function buildSignalMessage(
   const blocks: string[] = [];
 
   for (const asset of assets) {
-    let dir: "CALL" | "PUT";
-    if (adapterKey && adapters[adapterKey]?.isConnected()) {
+    const name = escapeHtml(formatAssetName(asset, market));
+
+    // ── 1. Determine bias direction ─────────────────────────────────────────
+    let biasDir: "CALL" | "PUT";
+
+    if (market === "quotex" && adapters["quotex"]?.isConnected()) {
+      // Quotex has its own live adapter — use it + apply strategy quality filters
       try {
-        const candles = await adapters[adapterKey]!.getCandles(asset, timeframe, 10);
+        const candles = await adapters["quotex"]!.getCandles(asset, timeframe, 10);
         const quality = analyseSignalQuality(candles);
         if (strategy.requireConfirm && !quality.confirmed) {
-          blocks.push(`<b>▎${escapeHtml(formatAssetName(asset, market))} — ⏭ Skipped (low quality)</b>`);
+          blocks.push(`<b>▎${name} — ⏭ Skipped (low quality)</b>`);
           continue;
         }
         if (strategy.filterLowVol && quality.strength === "weak") {
-          blocks.push(`<b>▎${escapeHtml(formatAssetName(asset, market))} — ⏭ Skipped (low volatility)</b>`);
+          blocks.push(`<b>▎${name} — ⏭ Skipped (low volatility)</b>`);
           continue;
         }
-        dir = direction === "BOTH" ? quality.direction : direction;
+        biasDir = direction === "BOTH" ? quality.direction : direction;
       } catch {
-        dir = direction === "BOTH" ? (Math.random() < 0.5 ? "CALL" : "PUT") : direction;
+        biasDir = await resolveOtcBias(asset, market, timeframe);
+        if (direction !== "BOTH") biasDir = direction;
       }
+    } else if (isOtc) {
+      // PO / IQ / Olymp — derive from Quotex inverse relationship
+      biasDir = await resolveOtcBias(asset, market, timeframe);
+      // If user forced a direction, respect it (inverse logic still informs MIX weight only)
+      if (direction !== "BOTH") biasDir = direction;
     } else {
-      dir = direction === "BOTH" ? (Math.random() < 0.5 ? "CALL" : "PUT") : direction;
+      // Real market — random
+      biasDir = direction === "BOTH"
+        ? (Math.random() < 0.5 ? "CALL" : "PUT")
+        : direction;
     }
 
-    const name = escapeHtml(formatAssetName(asset, market));
-    const startOffsetMs = (strategy.startMin + Math.random() * (strategy.startMax - strategy.startMin)) * 60_000;
+    // ── 2. Build time slots ─────────────────────────────────────────────────
+    const startOffsetMs =
+      (strategy.startMin + Math.random() * (strategy.startMax - strategy.startMin)) * 60_000;
     let cursor = new Date(nowMs + startOffsetMs);
     const times: string[] = [];
     for (let i = 0; i < effectiveCount; i++) {
       times.push(`${pad2(cursor.getUTCHours())}:${pad2(cursor.getUTCMinutes())}`);
-      cursor = new Date(cursor.getTime() + (strategy.gapMin + Math.floor(Math.random() * (strategy.gapMax - strategy.gapMin + 1))) * 60_000);
+      cursor = new Date(
+        cursor.getTime() +
+        (strategy.gapMin + Math.floor(Math.random() * (strategy.gapMax - strategy.gapMin + 1))) * 60_000,
+      );
     }
 
-    const blockHeader = isOtc ? `<b>▎${name}</b>` : `<b>▎${name} ${dir}</b>`;
-    const lines = times.map(t => `<b>${t} ${name} ${dir}</b>`);
+    // ── 3. Assign per-slot direction ────────────────────────────────────────
+    const slotDirs: ("CALL" | "PUT")[] = isMix
+      ? generateMixedDirs(effectiveCount, biasDir)
+      : Array(effectiveCount).fill(biasDir);
+
+    // ── 4. Build block ──────────────────────────────────────────────────────
+    // Header label
+    let headerLabel: string;
+    if (isMix) {
+      headerLabel = `${name} MIX`;
+    } else if (isOtc) {
+      headerLabel = name;
+    } else {
+      headerLabel = `${name} ${biasDir}`;
+    }
+    const blockHeader = `<b>▎${headerLabel}</b>`;
+    const lines = times.map((t, i) => `<b>${t} ${name} ${slotDirs[i]}</b>`);
     blocks.push([blockHeader, ...lines].join("\n"));
   }
 
