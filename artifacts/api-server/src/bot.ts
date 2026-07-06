@@ -1,7 +1,8 @@
 import { Telegraf, Markup, session } from "telegraf";
 import { logger } from "./lib/logger";
+import { adapters, initAdapters, analyseSignalQuality } from "./lib/broker-adapter";
 
-const BOT_TOKEN = process.env["TELEGRAM_BOT_TOKEN"];
+const BOT_TOKEN    = process.env["TELEGRAM_BOT_TOKEN"];
 const ADMIN_CHAT_ID = process.env["TELEGRAM_ADMIN_CHAT_ID"];
 
 // ─── Asset Lists ───────────────────────────────────────────────────────────────
@@ -86,26 +87,129 @@ const TIMEZONES: TZ[] = [
   { offset: 12,   label: "UTC+12:00", flag: "🇳🇿", name: "Auckland (NZST)" },
 ];
 
-const DEFAULT_TZ   = TIMEZONES[22]!; // UTC+6 Bangladesh
-const DEFAULT_TF   = 1;
-const MIN_ASSETS   = 1;
-const MAX_ASSETS   = 5;
+// ─── Strategies ────────────────────────────────────────────────────────────────
+
+interface Strategy {
+  id: string;
+  name: string;
+  badge: string;
+  /** Min minutes before first signal */
+  startMin: number;
+  /** Max minutes before first signal */
+  startMax: number;
+  /** Min gap between signals (minutes) */
+  gapMin: number;
+  /** Max gap between signals (minutes) */
+  gapMax: number;
+  /** Multiplier applied to user-selected count (0.5 = half, 1 = full) */
+  countMult: number;
+  noMartingale: boolean;
+  requireConfirm: boolean;
+  filterLowVol: boolean;
+  description: string;
+}
+
+const STRATEGIES: Strategy[] = [
+  {
+    id: "trendpulse", name: "TrendPulse Pro", badge: "⚡",
+    startMin: 2, startMax: 3, gapMin: 2, gapMax: 4, countMult: 1,
+    noMartingale: false, requireConfirm: false, filterLowVol: true,
+    description: "High-momentum trend follower",
+  },
+  {
+    id: "otcflow", name: "OTC Flow Confirm", badge: "🌊",
+    startMin: 2, startMax: 4, gapMin: 3, gapMax: 5, countMult: 0.8,
+    noMartingale: false, requireConfirm: true, filterLowVol: true,
+    description: "Confirms OTC flow before entry",
+  },
+  {
+    id: "livetrendsync", name: "LiveTrend Sync", badge: "🔄",
+    startMin: 2, startMax: 3, gapMin: 2, gapMax: 3, countMult: 1,
+    noMartingale: false, requireConfirm: false, filterLowVol: false,
+    description: "Syncs with live market trend",
+  },
+  {
+    id: "momentumlock", name: "Momentum Lock", badge: "🔒",
+    startMin: 3, startMax: 5, gapMin: 3, gapMax: 6, countMult: 0.7,
+    noMartingale: false, requireConfirm: true, filterLowVol: true,
+    description: "Locks in on strong momentum candles only",
+  },
+  {
+    id: "signalshield", name: "SignalShield", badge: "🛡️",
+    startMin: 2, startMax: 4, gapMin: 4, gapMax: 7, countMult: 0.6,
+    noMartingale: true, requireConfirm: true, filterLowVol: true,
+    description: "Conservative — fewer, higher-quality signals",
+  },
+  {
+    id: "b2btrend", name: "Back-to-Back Trend", badge: "🔁",
+    startMin: 2, startMax: 3, gapMin: 2, gapMax: 4, countMult: 1,
+    noMartingale: false, requireConfirm: true, filterLowVol: true,
+    description: "Back-to-back wins only when setup confirmed again",
+  },
+  {
+    id: "nomtg", name: "No-Martingale Trend", badge: "🚫",
+    startMin: 3, startMax: 5, gapMin: 4, gapMax: 8, countMult: 0.5,
+    noMartingale: true, requireConfirm: true, filterLowVol: true,
+    description: "Strictly no martingale — confirmed setups only",
+  },
+  {
+    id: "dualmarket", name: "Dual Market Confirm", badge: "🔀",
+    startMin: 2, startMax: 4, gapMin: 3, gapMax: 5, countMult: 0.8,
+    noMartingale: false, requireConfirm: true, filterLowVol: true,
+    description: "Cross-validates signal across two markets",
+  },
+  {
+    id: "precisioncandle", name: "Precision Candle Scan", badge: "🔬",
+    startMin: 4, startMax: 6, gapMin: 5, gapMax: 9, countMult: 0.5,
+    noMartingale: true, requireConfirm: true, filterLowVol: true,
+    description: "Deep candle analysis — fewer but very strong signals",
+  },
+  {
+    id: "riskguard", name: "RiskGuard Signals", badge: "🛡",
+    startMin: 3, startMax: 5, gapMin: 5, gapMax: 10, countMult: 0.6,
+    noMartingale: true, requireConfirm: true, filterLowVol: true,
+    description: "Maximum risk management — low frequency, high precision",
+  },
+];
+
+const DEFAULT_STRATEGY = STRATEGIES[0]!;
+
+// ─── Auto-Delete Options ───────────────────────────────────────────────────────
+
+interface AutoDeleteOption { label: string; seconds: number }
+
+const AUTO_DELETE_OPTIONS: AutoDeleteOption[] = [
+  { label: "10s",   seconds: 10 },
+  { label: "30s",   seconds: 30 },
+  { label: "1 Min", seconds: 60 },
+  { label: "5 Min", seconds: 300 },
+  { label: "30 Min",seconds: 1800 },
+  { label: "1 Hr",  seconds: 3600 },
+  { label: "6 Hr",  seconds: 21600 },
+];
+
+const DEFAULT_AUTO_DELETE = AUTO_DELETE_OPTIONS[0]!;
+
+// ─── Constants ─────────────────────────────────────────────────────────────────
+
+const DEFAULT_TZ    = TIMEZONES[22]!; // UTC+6 Bangladesh
+const DEFAULT_TF    = 1;
+const MIN_ASSETS    = 1;
+const MAX_ASSETS    = 5;
 const SIGNAL_COUNTS = [5, 10, 15, 20, 50, 70];
 
 // ─── Access Store ─────────────────────────────────────────────────────────────
-// In-memory: persists while the process runs. Admin grants via /grant command.
 
-interface AccessEntry { expiresAt: number | null } // null = lifetime
+interface AccessEntry { expiresAt: number | null }
 const accessStore = new Map<number, AccessEntry>();
 
 function hasAccess(userId: number): boolean {
   if (ADMIN_CHAT_ID && userId.toString() === ADMIN_CHAT_ID.trim()) return true;
-  const entry = accessStore.get(userId);
-  if (!entry) return false;
-  if (entry.expiresAt === null) return true;
-  return Date.now() < entry.expiresAt;
+  const e = accessStore.get(userId);
+  if (!e) return false;
+  if (e.expiresAt === null) return true;
+  return Date.now() < e.expiresAt;
 }
-
 function isAdmin(userId: number): boolean {
   return !!ADMIN_CHAT_ID && userId.toString() === ADMIN_CHAT_ID.trim();
 }
@@ -114,14 +218,24 @@ function isAdmin(userId: number): boolean {
 
 type MarketType = "real" | "quotex" | "po" | "iq" | "olymp";
 
-interface Settings { timeframe: number; timezone: TZ }
+interface Settings {
+  timeframe: number;
+  timezone: TZ;
+  strategy: Strategy;
+  autoDeleteSec: number;
+}
 
 interface SessionData {
-  state: "idle" | "await_market" | "await_assets" | "await_dir_amount" | "await_settings_tf" | "await_settings_tz";
+  state:
+    | "idle" | "await_market" | "await_assets" | "await_dir_amount"
+    | "await_settings_tf" | "await_settings_tz"
+    | "await_settings_strategy" | "await_settings_delete";
   market?: MarketType;
   selectedAssets: string[];
   direction: "BOTH" | "CALL" | "PUT";
   settings: Settings;
+  pendingDeleteIds: number[];
+  pendingDeleteChatId?: number;
 }
 
 type MyContext = import("telegraf").Context & { session: SessionData };
@@ -135,8 +249,8 @@ function escapeHtml(s: string): string {
 }
 
 function getAssetsForMarket(m: MarketType): string[] {
-  if (m === "real") return realAssets;
-  if (m === "quotex") return quotexOtcAssets;
+  if (m === "real")    return realAssets;
+  if (m === "quotex")  return quotexOtcAssets;
   return brokerSharedOtcAssets;
 }
 
@@ -160,24 +274,28 @@ function formatAssetName(asset: string, market: MarketType): string {
 
 function tzDisplay(tz: TZ): string { return `${tz.label} ${tz.flag}`; }
 
-/** Returns true on Saturday or Sunday in the user's configured timezone */
 function isWeekend(tz: TZ): boolean {
   const localMs = Date.now() + tz.offset * 3_600_000;
-  const day = new Date(localMs).getUTCDay(); // 0=Sun, 6=Sat
+  const day = new Date(localMs).getUTCDay();
   return day === 0 || day === 6;
+}
+
+function adLabel(sec: number): string {
+  const opt = AUTO_DELETE_OPTIONS.find(o => o.seconds === sec);
+  return opt ? opt.label : `${sec}s`;
 }
 
 // ─── Signal Generator ──────────────────────────────────────────────────────────
 
-function buildSignalMessage(
+async function buildSignalMessage(
   assets: string[],
   direction: "BOTH" | "CALL" | "PUT",
   market: MarketType,
   signalCount: number,
   settings: Settings,
-): string {
+): Promise<string> {
+  const { timeframe, timezone, strategy } = settings;
   const isOtc = market !== "real";
-  const { timeframe, timezone } = settings;
 
   const nowMs = Date.now() + timezone.offset * 3_600_000;
   const now   = new Date(nowMs);
@@ -185,17 +303,23 @@ function buildSignalMessage(
   const dd   = pad2(now.getUTCDate());
   const mm   = pad2(now.getUTCMonth() + 1);
   const yyyy = now.getUTCFullYear();
-
   const tfLabel = timeframe === 1 ? "1 MINUTE" : `${timeframe} MINUTES`;
+
+  const adapterKey = market === "real" ? null : market;
 
   const header = [
     `<b>━━━━━━━━━・━━━━━━━━━</b>`,
     `<b>            𝗗𝗮𝘁𝗲: ${dd}/${mm}/${yyyy}</b>`,
     `<b>  𝗧𝗶𝗺𝗲 𝗭𝗼𝗻𝗲: ${escapeHtml(tzDisplay(timezone))}</b>`,
     `<b>𝗘𝘅𝗽𝗶𝗿𝘆 𝗧𝗶𝗺𝗲: ${tfLabel} LIST</b>`,
-    `<b>𝗠𝗮𝗿𝘁𝗶𝗻𝗴𝗮𝗹𝗲: 1 STEP MTG</b>`,
-    `<b>(IF LOSS THEN USE ONE STEP AUTO MTG)</b>`,
+    strategy.noMartingale
+      ? `<b>⚠️ NO MARTINGALE — Confirmed setups only</b>`
+      : `<b>𝗠𝗮𝗿𝘁𝗶𝗻𝗴𝗮𝗹𝗲: 1 STEP MTG</b>`,
+    `<b>𝗦𝘁𝗿𝗮𝘁𝗲𝗴𝘆: ${escapeHtml(strategy.name)} ${escapeHtml(strategy.badge)}</b>`,
     `<b>Market: ${escapeHtml(marketLabel(market))}</b>`,
+    ...(adapterKey && adapters[adapterKey]?.isExperimental
+      ? [`<b>⚠️ Connector: EXPERIMENTAL (algorithmic fallback)</b>`]
+      : []),
     `<b>•••••••••••••••••••••••••••••••••••••••</b>`,
     `<b> Community @TRADERGUIDE_BOT</b>`,
     `<b>•••••••••••••••••••••••••••••••••••••••</b>`,
@@ -204,18 +328,46 @@ function buildSignalMessage(
     ``,
   ].join("\n");
 
+  const effectiveCount = Math.max(1, Math.round(signalCount * strategy.countMult));
   const blocks: string[] = [];
-  for (const asset of assets) {
-    const dir: "CALL" | "PUT" =
-      direction === "BOTH" ? (Math.random() < 0.5 ? "CALL" : "PUT") : direction;
-    const name = escapeHtml(formatAssetName(asset, market));
 
-    const startOffsetMs = (2 + Math.random()) * 60_000;
+  for (const asset of assets) {
+    // Try to get candles from broker adapter for quality analysis
+    let dir: "CALL" | "PUT";
+    if (adapterKey && adapters[adapterKey]?.isConnected()) {
+      try {
+        const candles = await adapters[adapterKey]!.getCandles(asset, timeframe, 10);
+        const quality = analyseSignalQuality(candles);
+
+        // Skip weak/unconfirmed signals if strategy requires confirmation
+        if (strategy.requireConfirm && !quality.confirmed) {
+          blocks.push(
+            `<b>▎${escapeHtml(formatAssetName(asset, market))} — ⏭ Skipped (low quality)</b>`
+          );
+          continue;
+        }
+        if (strategy.filterLowVol && quality.strength === "weak") {
+          blocks.push(
+            `<b>▎${escapeHtml(formatAssetName(asset, market))} — ⏭ Skipped (low volatility)</b>`
+          );
+          continue;
+        }
+
+        dir = direction === "BOTH" ? quality.direction : direction;
+      } catch {
+        dir = direction === "BOTH" ? (Math.random() < 0.5 ? "CALL" : "PUT") : direction;
+      }
+    } else {
+      dir = direction === "BOTH" ? (Math.random() < 0.5 ? "CALL" : "PUT") : direction;
+    }
+
+    const name = escapeHtml(formatAssetName(asset, market));
+    const startOffsetMs = (strategy.startMin + Math.random() * (strategy.startMax - strategy.startMin)) * 60_000;
     let cursor = new Date(nowMs + startOffsetMs);
     const times: string[] = [];
-    for (let i = 0; i < signalCount; i++) {
+    for (let i = 0; i < effectiveCount; i++) {
       times.push(`${pad2(cursor.getUTCHours())}:${pad2(cursor.getUTCMinutes())}`);
-      cursor = new Date(cursor.getTime() + (2 + Math.floor(Math.random() * 3)) * 60_000);
+      cursor = new Date(cursor.getTime() + (strategy.gapMin + Math.floor(Math.random() * (strategy.gapMax - strategy.gapMin + 1))) * 60_000);
     }
 
     const blockHeader = isOtc ? `<b>▎${name}</b>` : `<b>▎${name} ${dir}</b>`;
@@ -226,10 +378,13 @@ function buildSignalMessage(
   return header + blocks.join("\n\n");
 }
 
-// ─── Keyboards ─────────────────────────────────────────────────────────────────
+// ─── Static text / keyboards ───────────────────────────────────────────────────
 
-const MAIN_MENU_TEXT = "🤖 <b>TG ADVANCE SIGNAL GENERATOR</b>\n\nWelcome! Choose an option below:";
-const MAIN_MENU_KB   = Markup.inlineKeyboard([[Markup.button.callback("🔮 FUTURE SIGNAL • TG", "futuresignal")]]);
+const MAIN_MENU_TEXT =
+  "🤖 <b>TG ADVANCE SIGNAL GENERATOR</b>\n\nWelcome! Choose an option below:";
+const MAIN_MENU_KB = Markup.inlineKeyboard([
+  [Markup.button.callback("🔮 FUTURE SIGNAL • TG", "futuresignal")],
+]);
 
 const PAYWALL_TEXT =
   `🔒 <b>You Don't Have Access ⚠️</b>\n\n` +
@@ -238,9 +393,9 @@ const PAYWALL_TEXT =
 
 const PAYWALL_KB = Markup.inlineKeyboard([
   [
-    Markup.button.url("💬 CHAT", "https://t.me/oawhidshakib"),
+    Markup.button.url("💬 CHAT",          "https://t.me/oawhidshakib"),
     Markup.button.callback("💳 ACCESS BUY", "access_buy"),
-    Markup.button.url("⭐ VIP AUTO JOIN", "https://t.me/managementTG_bot"),
+    Markup.button.url("⭐ VIP AUTO JOIN",  "https://t.me/managementTG_bot"),
   ],
 ]);
 
@@ -264,24 +419,23 @@ const PRICE_LIST_TEXT =
 
 const PRICE_LIST_KB = Markup.inlineKeyboard([
   [
-    Markup.button.url("💬 CHAT", "https://t.me/oawhidshakib"),
-    Markup.button.url("⭐ VIP AUTO JOIN", "https://t.me/managementTG_bot"),
+    Markup.button.url("💬 CHAT",         "https://t.me/oawhidshakib"),
+    Markup.button.url("⭐ VIP AUTO JOIN","https://t.me/managementTG_bot"),
   ],
   [Markup.button.callback("🔙 Back", "paywall_back")],
 ]);
 
 const marketKeyboard = Markup.inlineKeyboard([
-  [Markup.button.callback("🌍 Real Market",         "market_real")],
-  [Markup.button.callback("📈 Quotex OTC",          "market_quotex")],
-  [Markup.button.callback("💼 Pocket Option OTC",   "market_po")],
-  [Markup.button.callback("📊 IQ Option OTC",       "market_iq")],
-  [Markup.button.callback("🏦 Olymp Trade OTC",     "market_olymp")],
-  [Markup.button.callback("🔙 Back",                "back_to_menu")],
+  [Markup.button.callback("🌍 Real Market",       "market_real")],
+  [Markup.button.callback("📈 Quotex OTC",        "market_quotex")],
+  [Markup.button.callback("💼 Pocket Option OTC", "market_po")],
+  [Markup.button.callback("📊 IQ Option OTC",     "market_iq")],
+  [Markup.button.callback("🏦 Olymp Trade OTC",   "market_olymp")],
+  [Markup.button.callback("🔙 Back",              "back_to_menu")],
 ]);
 
 function assetKeyboard(
-  assets: string[],
-  selected: string[],
+  assets: string[], selected: string[],
 ): ReturnType<typeof Markup.inlineKeyboard> {
   const btns = assets.map(a =>
     Markup.button.callback(selected.includes(a) ? `✔ ${a}` : a, `asset_${a}`)
@@ -292,7 +446,7 @@ function assetKeyboard(
     Markup.button.callback("✅ Done",              "assets_done"),
     Markup.button.callback("🔙 Back",              "back_to_market"),
   ]);
-  rows.push([Markup.button.callback("⚙️ Change Settings", "settings_open")]);
+  rows.push([Markup.button.callback("⚙️ Change Settings", "settings_hub")]);
   rows.push([Markup.button.callback("🌍 Timezone",        "settings_tz_open")]);
   return Markup.inlineKeyboard(rows);
 }
@@ -311,14 +465,26 @@ function dirAmountKeyboard(dir: "BOTH" | "CALL" | "PUT"): ReturnType<typeof Mark
   ]);
 }
 
-function settingsTfKeyboard(currentTf: number): ReturnType<typeof Markup.inlineKeyboard> {
+function settingsHubKeyboard(s: Settings): ReturnType<typeof Markup.inlineKeyboard> {
+  return Markup.inlineKeyboard([
+    [
+      Markup.button.callback(`⏱ TF: ${s.timeframe}Min`,    "settings_open"),
+      Markup.button.callback(`🌍 ${s.timezone.flag} ${s.timezone.label}`, "settings_tz_open"),
+    ],
+    [Markup.button.callback(`🎯 ${s.strategy.badge} ${s.strategy.name}`, "settings_strategy_open")],
+    [Markup.button.callback(`⏰ Auto-Delete: ${adLabel(s.autoDeleteSec)}`, "settings_delete_open")],
+    [Markup.button.callback("🔙 Back to Assets", "back_to_assets")],
+  ]);
+}
+
+function tfKeyboard(currentTf: number): ReturnType<typeof Markup.inlineKeyboard> {
   const tfs = [1, 2, 3, 5, 10, 15, 30];
-  const mk = (tf: number) =>
+  const mk  = (tf: number) =>
     Markup.button.callback(tf === currentTf ? `✓ ${tf}Min` : `${tf}Min`, `tf_${tf}`);
   return Markup.inlineKeyboard([
     tfs.slice(0, 4).map(mk),
     tfs.slice(4).map(mk),
-    [Markup.button.callback("🔙 Back to Assets", "back_to_assets")],
+    [Markup.button.callback("🔙 Back", "back_to_settings_hub")],
   ]);
 }
 
@@ -330,19 +496,97 @@ function tzKeyboard(): ReturnType<typeof Markup.inlineKeyboard> {
       Markup.button.callback(`${tz.flag} ${tz.label}`, `tz_${i + j}`)
     ));
   }
-  rows.push([Markup.button.callback("🔙 Back", "back_to_settings")]);
+  rows.push([Markup.button.callback("🔙 Back", "back_to_settings_hub")]);
+  return Markup.inlineKeyboard(rows);
+}
+
+function strategyKeyboard(currentId: string): ReturnType<typeof Markup.inlineKeyboard> {
+  const rows: ReturnType<typeof Markup.button.callback>[][] = [];
+  for (let i = 0; i < STRATEGIES.length; i += 2) {
+    const pair = STRATEGIES.slice(i, i + 2);
+    rows.push(pair.map(s =>
+      Markup.button.callback(
+        s.id === currentId ? `✓ ${s.badge} ${s.name}` : `${s.badge} ${s.name}`,
+        `strategy_${s.id}`,
+      )
+    ));
+  }
+  rows.push([Markup.button.callback("🔙 Back", "back_to_settings_hub")]);
+  return Markup.inlineKeyboard(rows);
+}
+
+function autoDeleteKeyboard(currentSec: number): ReturnType<typeof Markup.inlineKeyboard> {
+  const rows: ReturnType<typeof Markup.button.callback>[][] = [];
+  for (let i = 0; i < AUTO_DELETE_OPTIONS.length; i += 3) {
+    rows.push(
+      AUTO_DELETE_OPTIONS.slice(i, i + 3).map(o =>
+        Markup.button.callback(
+          o.seconds === currentSec ? `✓ ${o.label}` : o.label,
+          `autodel_${o.seconds}`,
+        )
+      )
+    );
+  }
+  rows.push([Markup.button.callback("🔙 Back", "back_to_settings_hub")]);
   return Markup.inlineKeyboard(rows);
 }
 
 // ─── Bot ───────────────────────────────────────────────────────────────────────
 
-export function startBot(): void {
+const MAX_RETRIES      = 5;
+const RETRY_DELAY_MS   = 3_000;
+let   botRestartCount  = 0;
+
+export async function startBot(): Promise<void> {
   if (!BOT_TOKEN) {
     logger.warn("TELEGRAM_BOT_TOKEN not set — bot will not start");
     return;
   }
 
-  const bot = new Telegraf<MyContext>(BOT_TOKEN);
+  await initAdapters();
+
+  await launchWithRetry();
+}
+
+async function launchWithRetry(): Promise<void> {
+  const bot = buildBot();
+
+  try {
+    await bot.launch();
+    botRestartCount = 0;
+    logger.info("Telegram bot started");
+
+    if (ADMIN_CHAT_ID) {
+      bot.telegram
+        .sendMessage(
+          ADMIN_CHAT_ID,
+          `🤖 <b>TG ADVANCE SIGNAL GENERATOR is online!</b>\nBroker adapters: ${Object.entries(adapters)
+            .map(([k, a]) => `${k}=${a.isExperimental ? "⚠️exp" : "✅"}`)
+            .join(", ")}`,
+          { parse_mode: "HTML" },
+        )
+        .catch(() => {});
+    }
+  } catch (err) {
+    botRestartCount++;
+    logger.error({ err, attempt: botRestartCount }, "Bot launch failed");
+
+    if (botRestartCount <= MAX_RETRIES) {
+      const delay = RETRY_DELAY_MS * botRestartCount;
+      logger.info({ delay, attempt: botRestartCount }, "Retrying bot launch…");
+      await new Promise(r => setTimeout(r, delay));
+      return launchWithRetry();
+    }
+
+    logger.error("Max retries reached. Bot will not restart automatically.");
+  }
+
+  process.once("SIGINT",  () => bot.stop("SIGINT"));
+  process.once("SIGTERM", () => bot.stop("SIGTERM"));
+}
+
+function buildBot(): Telegraf<MyContext> {
+  const bot = new Telegraf<MyContext>(BOT_TOKEN!);
 
   bot.use(
     session({
@@ -350,7 +594,13 @@ export function startBot(): void {
         state: "idle",
         selectedAssets: [],
         direction: "BOTH",
-        settings: { timeframe: DEFAULT_TF, timezone: DEFAULT_TZ },
+        pendingDeleteIds: [],
+        settings: {
+          timeframe: DEFAULT_TF,
+          timezone: DEFAULT_TZ,
+          strategy: DEFAULT_STRATEGY,
+          autoDeleteSec: DEFAULT_AUTO_DELETE.seconds,
+        },
       }),
     }),
   );
@@ -361,67 +611,86 @@ export function startBot(): void {
     { command: "help",         description: "Show help" },
   ]).catch(() => {});
 
-  // ── Helpers ────────────────────────────────────────────────────────────────
+  // ── Inner helpers ──────────────────────────────────────────────────────────
 
   async function sendMainMenu(ctx: MyContext): Promise<void> {
     await ctx.reply(MAIN_MENU_TEXT, { parse_mode: "HTML", ...MAIN_MENU_KB });
   }
 
   async function showPaywall(ctx: MyContext, edit: boolean): Promise<void> {
-    if (edit) {
-      await ctx.editMessageText(PAYWALL_TEXT, { parse_mode: "HTML", ...PAYWALL_KB });
-    } else {
-      await ctx.reply(PAYWALL_TEXT, { parse_mode: "HTML", ...PAYWALL_KB });
+    if (edit) await ctx.editMessageText(PAYWALL_TEXT, { parse_mode: "HTML", ...PAYWALL_KB });
+    else      await ctx.reply(PAYWALL_TEXT,            { parse_mode: "HTML", ...PAYWALL_KB });
+  }
+
+  async function clearPendingSignals(ctx: MyContext): Promise<void> {
+    const { pendingDeleteIds, pendingDeleteChatId } = ctx.session;
+    if (!pendingDeleteChatId || pendingDeleteIds.length === 0) return;
+    for (const id of pendingDeleteIds) {
+      await bot.telegram.deleteMessage(pendingDeleteChatId, id).catch(() => {});
     }
+    ctx.session.pendingDeleteIds = [];
+    ctx.session.pendingDeleteChatId = undefined;
   }
 
   function assetText(ctx: MyContext): string {
     const sel = ctx.session.selectedAssets;
-    const tf  = ctx.session.settings.timeframe;
-    const tz  = ctx.session.settings.timezone;
+    const s   = ctx.session.settings;
     return (
       `📌 <b>Select assets</b> (min ${MIN_ASSETS}, max ${MAX_ASSETS})\n` +
-      `⚙️ TF: <b>${tf}Min</b>  |  🌍 TZ: <b>${escapeHtml(tzDisplay(tz))}</b>\n\n` +
+      `⚙️ TF: <b>${s.timeframe}Min</b>  |  🌍 TZ: <b>${escapeHtml(tzDisplay(s.timezone))}</b>\n` +
+      `🎯 Strategy: <b>${escapeHtml(s.strategy.name)}</b>  |  ⏰ Delete: <b>${adLabel(s.autoDeleteSec)}</b>\n\n` +
       `<i>Selected: ${sel.length > 0 ? escapeHtml(sel.join(", ")) : "none"}</i>`
     );
   }
 
   async function showAssets(ctx: MyContext, edit: boolean): Promise<void> {
     const assets = getAssetsForMarket(ctx.session.market ?? "real");
-    const kb = assetKeyboard(assets, ctx.session.selectedAssets);
+    const kb     = assetKeyboard(assets, ctx.session.selectedAssets);
     ctx.session.state = "await_assets";
-    if (edit) {
-      await ctx.editMessageText(assetText(ctx), { parse_mode: "HTML", ...kb });
-    } else {
-      await ctx.reply(assetText(ctx), { parse_mode: "HTML", ...kb });
-    }
+    if (edit) await ctx.editMessageText(assetText(ctx), { parse_mode: "HTML", ...kb });
+    else      await ctx.reply(assetText(ctx),            { parse_mode: "HTML", ...kb });
   }
 
   async function showDirAmount(ctx: MyContext): Promise<void> {
     ctx.session.state = "await_dir_amount";
+    const s = ctx.session.settings;
     await ctx.editMessageText(
       `📊 <b>Select Direction &amp; Signal Count</b>\n\n` +
-      `Direction: <b>${ctx.session.direction}</b>\n` +
-      `Choose how many signals per pair:`,
+      `🎯 Strategy: <b>${escapeHtml(s.strategy.name)}</b> — <i>${escapeHtml(s.strategy.description)}</i>\n` +
+      `Direction: <b>${ctx.session.direction}</b>\nChoose signals per pair:`,
       { parse_mode: "HTML", ...dirAmountKeyboard(ctx.session.direction) },
     );
   }
 
+  function showSettingsHub(ctx: MyContext, edit: boolean): Promise<unknown> {
+    const s = ctx.session.settings;
+    const text =
+      `⚙️ <b>Settings</b>\n\n` +
+      `⏱ Timeframe: <b>${s.timeframe} Min</b>\n` +
+      `🌍 Timezone: <b>${escapeHtml(tzDisplay(s.timezone))}</b>\n` +
+      `🎯 Strategy: <b>${escapeHtml(s.strategy.name)}</b> ${escapeHtml(s.strategy.badge)}\n` +
+      `    <i>${escapeHtml(s.strategy.description)}</i>\n` +
+      `⏰ Auto-Delete: <b>${adLabel(s.autoDeleteSec)}</b>`;
+    const kb = settingsHubKeyboard(s);
+    if (edit) return ctx.editMessageText(text, { parse_mode: "HTML", ...kb });
+    return ctx.reply(text, { parse_mode: "HTML", ...kb });
+  }
+
   // ── Commands ───────────────────────────────────────────────────────────────
 
-  bot.start(async (ctx) => {
+  bot.start(async ctx => {
     ctx.session.state = "idle";
     await sendMainMenu(ctx);
   });
 
-  bot.command("help", async (ctx) => {
+  bot.command("help", async ctx => {
     await ctx.reply(
       "📋 <b>Commands</b>\n\n/start — Start\n/futuresignal — Generate signals\n/help — This message",
       { parse_mode: "HTML" },
     );
   });
 
-  bot.command("futuresignal", async (ctx) => {
+  bot.command("futuresignal", async ctx => {
     const uid = ctx.from?.id ?? 0;
     if (!hasAccess(uid)) { await showPaywall(ctx, false); return; }
     ctx.session.state = "await_market";
@@ -430,12 +699,10 @@ export function startBot(): void {
 
   // ── Admin commands ─────────────────────────────────────────────────────────
 
-  bot.command("grant", async (ctx) => {
-    const uid = ctx.from?.id ?? 0;
-    if (!isAdmin(uid)) return;
-    const parts = ctx.message.text.trim().split(/\s+/);
-    const targetId = parseInt(parts[1] ?? "", 10);
-    const param = parts[2] ?? "";
+  bot.command("grant", async ctx => {
+    if (!isAdmin(ctx.from?.id ?? 0)) return;
+    const [, rawId, param] = ctx.message.text.trim().split(/\s+/);
+    const targetId = parseInt(rawId ?? "", 10);
     if (!targetId || !param) {
       await ctx.reply("Usage: /grant &lt;userId&gt; &lt;days|lifetime&gt;", { parse_mode: "HTML" });
       return;
@@ -446,31 +713,31 @@ export function startBot(): void {
     } else {
       const days = parseInt(param, 10);
       if (!days || days <= 0) { await ctx.reply("Days must be a positive number."); return; }
-      const expiresAt = Date.now() + days * 86_400_000;
-      accessStore.set(targetId, { expiresAt });
-      const expStr = new Date(expiresAt).toUTCString();
-      await ctx.reply(`✅ <b>${days}-day</b> access granted to <code>${targetId}</code>.\nExpires: <code>${expStr}</code>`, { parse_mode: "HTML" });
+      accessStore.set(targetId, { expiresAt: Date.now() + days * 86_400_000 });
+      await ctx.reply(
+        `✅ <b>${days}-day</b> access granted to <code>${targetId}</code>.\n` +
+        `Expires: <code>${new Date(Date.now() + days * 86_400_000).toUTCString()}</code>`,
+        { parse_mode: "HTML" },
+      );
     }
   });
 
-  bot.command("revoke", async (ctx) => {
-    const uid = ctx.from?.id ?? 0;
-    if (!isAdmin(uid)) return;
-    const parts = ctx.message.text.trim().split(/\s+/);
-    const targetId = parseInt(parts[1] ?? "", 10);
+  bot.command("revoke", async ctx => {
+    if (!isAdmin(ctx.from?.id ?? 0)) return;
+    const [, rawId] = ctx.message.text.trim().split(/\s+/);
+    const targetId = parseInt(rawId ?? "", 10);
     if (!targetId) { await ctx.reply("Usage: /revoke &lt;userId&gt;", { parse_mode: "HTML" }); return; }
     accessStore.delete(targetId);
     await ctx.reply(`✅ Access revoked for <code>${targetId}</code>.`, { parse_mode: "HTML" });
   });
 
-  bot.command("listaccess", async (ctx) => {
-    const uid = ctx.from?.id ?? 0;
-    if (!isAdmin(uid)) return;
+  bot.command("listaccess", async ctx => {
+    if (!isAdmin(ctx.from?.id ?? 0)) return;
     if (accessStore.size === 0) { await ctx.reply("No users have been granted access."); return; }
     const lines = Array.from(accessStore.entries()).map(([id, e]) => {
       const exp = e.expiresAt === null
         ? "Lifetime ♾️"
-        : `Expires: ${new Date(e.expiresAt).toUTCString()} ${Date.now() < e.expiresAt ? "✅" : "❌ EXPIRED"}`;
+        : `${new Date(e.expiresAt).toUTCString()} ${Date.now() < e.expiresAt ? "✅" : "❌ EXPIRED"}`;
       return `<code>${id}</code> — ${exp}`;
     });
     await ctx.reply(`<b>Access List (${accessStore.size}):</b>\n\n${lines.join("\n")}`, { parse_mode: "HTML" });
@@ -478,7 +745,7 @@ export function startBot(): void {
 
   // ── Main actions ───────────────────────────────────────────────────────────
 
-  bot.action("futuresignal", async (ctx) => {
+  bot.action("futuresignal", async ctx => {
     await ctx.answerCbQuery();
     const uid = ctx.from?.id ?? 0;
     if (!hasAccess(uid)) { await showPaywall(ctx, true); return; }
@@ -486,38 +753,28 @@ export function startBot(): void {
     await ctx.editMessageText("📊 <b>Select Market Type:</b>", { parse_mode: "HTML", ...marketKeyboard });
   });
 
-  bot.action("back_to_menu", async (ctx) => {
+  bot.action("back_to_menu", async ctx => {
     await ctx.answerCbQuery();
     ctx.session.state = "idle";
+    await clearPendingSignals(ctx);
     await ctx.editMessageText(MAIN_MENU_TEXT, { parse_mode: "HTML", ...MAIN_MENU_KB });
   });
 
-  // Paywall actions
-  bot.action("access_buy", async (ctx) => {
-    await ctx.answerCbQuery();
-    await ctx.editMessageText(PRICE_LIST_TEXT, { parse_mode: "HTML", ...PRICE_LIST_KB });
-  });
+  bot.action("access_buy",   async ctx => { await ctx.answerCbQuery(); await ctx.editMessageText(PRICE_LIST_TEXT, { parse_mode: "HTML", ...PRICE_LIST_KB }); });
+  bot.action("paywall_back", async ctx => { await ctx.answerCbQuery(); await ctx.editMessageText(PAYWALL_TEXT,    { parse_mode: "HTML", ...PAYWALL_KB    }); });
 
-  bot.action("paywall_back", async (ctx) => {
-    await ctx.answerCbQuery();
-    await ctx.editMessageText(PAYWALL_TEXT, { parse_mode: "HTML", ...PAYWALL_KB });
-  });
-
-  // Market selection
+  // Market selection with weekend guard
   const markets: MarketType[] = ["real", "quotex", "po", "iq", "olymp"];
   for (const m of markets) {
-    bot.action(`market_${m}`, async (ctx) => {
+    bot.action(`market_${m}`, async ctx => {
       if (ctx.session.state !== "await_market") return;
-
-      // Weekend block for real market
       if (m === "real" && isWeekend(ctx.session.settings.timezone)) {
         await ctx.answerCbQuery(
-          "🚫 Real Market Closed — Weekend!\nMarket open Mon–Fri only. Use OTC instead.",
+          "🚫 Real Market Closed — Weekend!\nOpen Mon–Fri only. Use OTC instead.",
           { show_alert: true },
         );
         return;
       }
-
       await ctx.answerCbQuery();
       ctx.session.market = m;
       ctx.session.selectedAssets = [];
@@ -525,7 +782,7 @@ export function startBot(): void {
     });
   }
 
-  bot.action("back_to_market", async (ctx) => {
+  bot.action("back_to_market", async ctx => {
     await ctx.answerCbQuery();
     ctx.session.state = "await_market";
     ctx.session.selectedAssets = [];
@@ -533,7 +790,7 @@ export function startBot(): void {
   });
 
   // Asset toggling
-  bot.action(/^asset_(.+)$/, async (ctx) => {
+  bot.action(/^asset_(.+)$/, async ctx => {
     if (ctx.session.state !== "await_assets") return;
     const asset = ctx.match[1];
     const sel   = ctx.session.selectedAssets;
@@ -553,9 +810,8 @@ export function startBot(): void {
     await ctx.editMessageText(assetText(ctx), { parse_mode: "HTML", ...assetKeyboard(assets, sel) });
   });
 
-  bot.action("assets_done", async (ctx) => {
-    const sel = ctx.session.selectedAssets;
-    if (sel.length < MIN_ASSETS) {
+  bot.action("assets_done", async ctx => {
+    if (ctx.session.selectedAssets.length < MIN_ASSETS) {
       await ctx.answerCbQuery(`⚠️ Select at least ${MIN_ASSETS} asset!`, { show_alert: true });
       return;
     }
@@ -563,36 +819,46 @@ export function startBot(): void {
     await showDirAmount(ctx);
   });
 
-  bot.action("back_to_assets", async (ctx) => {
+  bot.action("back_to_assets", async ctx => {
     await ctx.answerCbQuery();
     await showAssets(ctx, true);
   });
 
-  // ── Direction selection ────────────────────────────────────────────────────
+  // ── Direction ──────────────────────────────────────────────────────────────
 
   for (const dir of ["BOTH", "CALL", "PUT"] as const) {
-    bot.action(`setdir_${dir}`, async (ctx) => {
+    bot.action(`setdir_${dir}`, async ctx => {
       if (ctx.session.state !== "await_dir_amount") return;
       ctx.session.direction = dir;
       await ctx.answerCbQuery(`Direction: ${dir}`);
+      const s = ctx.session.settings;
       await ctx.editMessageText(
-        `📊 <b>Select Direction &amp; Signal Count</b>\n\nDirection: <b>${dir}</b>\nChoose how many signals per pair:`,
+        `📊 <b>Select Direction &amp; Signal Count</b>\n\n` +
+        `🎯 Strategy: <b>${escapeHtml(s.strategy.name)}</b> — <i>${escapeHtml(s.strategy.description)}</i>\n` +
+        `Direction: <b>${dir}</b>\nChoose signals per pair:`,
         { parse_mode: "HTML", ...dirAmountKeyboard(dir) },
       );
     });
   }
 
-  // ── Signal count — triggers generation ────────────────────────────────────
+  // ── Signal generation ──────────────────────────────────────────────────────
 
   for (const count of SIGNAL_COUNTS) {
-    bot.action(`sigcount_${count}`, async (ctx) => {
+    bot.action(`sigcount_${count}`, async ctx => {
       if (ctx.session.state !== "await_dir_amount") return;
       await ctx.answerCbQuery("⏳ Generating...");
 
       const { selectedAssets, direction, market, settings } = ctx.session;
       ctx.session.state = "idle";
 
-      const msg = buildSignalMessage(selectedAssets, direction, market ?? "real", count, settings);
+      let msg: string;
+      try {
+        msg = await buildSignalMessage(selectedAssets, direction, market ?? "real", count, settings);
+      } catch (err) {
+        logger.error({ err }, "Signal generation error");
+        await ctx.reply("⚠️ Error generating signals. Please try again.", { parse_mode: "HTML" });
+        return;
+      }
 
       const MAX_LEN = 4000;
       const chunks: string[] = [];
@@ -600,9 +866,8 @@ export function startBot(): void {
       while (rem.length > 0) {
         if (rem.length <= MAX_LEN) { chunks.push(rem); break; }
         const cut = rem.lastIndexOf("\n\n", MAX_LEN);
-        const at  = cut > 0 ? cut : MAX_LEN;
-        chunks.push(rem.slice(0, at));
-        rem = rem.slice(at).trimStart();
+        chunks.push(rem.slice(0, cut > 0 ? cut : MAX_LEN));
+        rem = rem.slice(cut > 0 ? cut : MAX_LEN).trimStart();
       }
 
       const chatId = ctx.chat!.id;
@@ -617,65 +882,82 @@ export function startBot(): void {
         deleteMsgIds.push(m.message_id);
       }
 
+      const delLabel = adLabel(settings.autoDeleteSec);
       const summaryMsg = await ctx.reply(
-        `✅ <b>${count} signals × ${selectedAssets.length} pair(s)</b>\n⏱ <i>Auto-deleting in 10s…</i>`,
+        `✅ <b>${count} signals × ${selectedAssets.length} pair(s)</b> | 🎯 ${escapeHtml(settings.strategy.name)}\n` +
+        `⏱ <i>Auto-deleting in ${delLabel}…</i>`,
         {
           parse_mode: "HTML",
           ...Markup.inlineKeyboard([[Markup.button.callback("🏠 Home", "go_home")]]),
         },
       );
-      const summaryMsgId = summaryMsg.message_id;
+
+      ctx.session.pendingDeleteIds    = deleteMsgIds;
+      ctx.session.pendingDeleteChatId = chatId;
 
       setTimeout(() => {
         for (const id of deleteMsgIds) {
           bot.telegram.deleteMessage(chatId, id).catch(() => {});
         }
         bot.telegram
-          .editMessageText(chatId, summaryMsgId, undefined, MAIN_MENU_TEXT, {
+          .editMessageText(chatId, summaryMsg.message_id, undefined, MAIN_MENU_TEXT, {
             parse_mode: "HTML",
             ...MAIN_MENU_KB,
           })
           .catch(() => {});
+        ctx.session.pendingDeleteIds    = [];
+        ctx.session.pendingDeleteChatId = undefined;
         ctx.session.state = "idle";
-      }, 10_000);
+      }, settings.autoDeleteSec * 1_000);
     });
   }
 
-  // Home button
-  bot.action("go_home", async (ctx) => {
+  // Home — deletes signal messages first, then shows main menu
+  bot.action("go_home", async ctx => {
     await ctx.answerCbQuery();
     ctx.session.state = "idle";
+    await clearPendingSignals(ctx);
     await ctx.editMessageText(MAIN_MENU_TEXT, { parse_mode: "HTML", ...MAIN_MENU_KB });
   });
 
-  // ── Settings: Timeframe ────────────────────────────────────────────────────
+  // ── Settings Hub ───────────────────────────────────────────────────────────
 
-  bot.action("settings_open", async (ctx) => {
+  bot.action("settings_hub", async ctx => {
     await ctx.answerCbQuery();
-    ctx.session.state = "await_settings_tf";
+    await showSettingsHub(ctx, true);
+  });
+
+  bot.action("back_to_settings_hub", async ctx => {
+    await ctx.answerCbQuery();
+    await showSettingsHub(ctx, true);
+  });
+
+  // ── Timeframe ──────────────────────────────────────────────────────────────
+
+  bot.action("settings_open", async ctx => {
+    await ctx.answerCbQuery();
     const tf = ctx.session.settings.timeframe;
     await ctx.editMessageText(
-      `⚙️ <b>Change Timeframe</b>\n\nCurrent: <b>${tf} Min</b>\nSelect a new timeframe:`,
-      { parse_mode: "HTML", ...settingsTfKeyboard(tf) },
+      `⏱ <b>Choose Timeframe</b>\n\nCurrent: <b>${tf} Min</b>`,
+      { parse_mode: "HTML", ...tfKeyboard(tf) },
     );
   });
 
   for (const tf of [1, 2, 3, 5, 10, 15, 30]) {
-    bot.action(`tf_${tf}`, async (ctx) => {
+    bot.action(`tf_${tf}`, async ctx => {
       ctx.session.settings.timeframe = tf;
       await ctx.answerCbQuery(`✓ ${tf}Min saved`);
       await ctx.editMessageText(
-        `⚙️ <b>Change Timeframe</b>\n\nCurrent: <b>${tf} Min</b>\nSelect a new timeframe:`,
-        { parse_mode: "HTML", ...settingsTfKeyboard(tf) },
+        `⏱ <b>Choose Timeframe</b>\n\nCurrent: <b>${tf} Min</b>`,
+        { parse_mode: "HTML", ...tfKeyboard(tf) },
       );
     });
   }
 
-  // ── Settings: Timezone ─────────────────────────────────────────────────────
+  // ── Timezone ───────────────────────────────────────────────────────────────
 
-  bot.action("settings_tz_open", async (ctx) => {
+  bot.action("settings_tz_open", async ctx => {
     await ctx.answerCbQuery();
-    ctx.session.state = "await_settings_tz";
     const cur = ctx.session.settings.timezone;
     await ctx.editMessageText(
       `🌍 <b>Select Timezone</b>\n\nCurrent: <b>${escapeHtml(tzDisplay(cur))}</b>`,
@@ -683,48 +965,61 @@ export function startBot(): void {
     );
   });
 
-  bot.action("back_to_settings", async (ctx) => {
-    await ctx.answerCbQuery();
-    ctx.session.state = "await_settings_tf";
-    const tf = ctx.session.settings.timeframe;
-    await ctx.editMessageText(
-      `⚙️ <b>Change Timeframe</b>\n\nCurrent: <b>${tf} Min</b>\nSelect a new timeframe:`,
-      { parse_mode: "HTML", ...settingsTfKeyboard(tf) },
-    );
-  });
-
-  bot.action(/^tz_(\d+)$/, async (ctx) => {
-    const idx = parseInt(ctx.match[1], 10);
-    const tz  = TIMEZONES[idx];
+  bot.action(/^tz_(\d+)$/, async ctx => {
+    const tz = TIMEZONES[parseInt(ctx.match[1], 10)];
     if (!tz) return;
     ctx.session.settings.timezone = tz;
     await ctx.answerCbQuery(`✓ ${tzDisplay(tz)} saved`);
-    ctx.session.state = "await_settings_tf";
-    const tf = ctx.session.settings.timeframe;
+    await showSettingsHub(ctx, true);
+  });
+
+  // ── Strategy ───────────────────────────────────────────────────────────────
+
+  bot.action("settings_strategy_open", async ctx => {
+    await ctx.answerCbQuery();
+    const cur = ctx.session.settings.strategy;
     await ctx.editMessageText(
-      `⚙️ <b>Change Timeframe</b>\n\nCurrent: <b>${tf} Min</b> | 🌍 <b>${escapeHtml(tzDisplay(tz))}</b>\nTimeframe:`,
-      { parse_mode: "HTML", ...settingsTfKeyboard(tf) },
+      `🎯 <b>Select Strategy</b>\n\nCurrent: <b>${escapeHtml(cur.name)}</b>\n<i>${escapeHtml(cur.description)}</i>`,
+      { parse_mode: "HTML", ...strategyKeyboard(cur.id) },
     );
   });
 
-  // ── Launch ─────────────────────────────────────────────────────────────────
+  bot.action(/^strategy_(.+)$/, async ctx => {
+    const s = STRATEGIES.find(x => x.id === ctx.match[1]);
+    if (!s) return;
+    ctx.session.settings.strategy = s;
+    await ctx.answerCbQuery(`✓ ${s.name} selected`);
+    await showSettingsHub(ctx, true);
+  });
+
+  // ── Auto-Delete ────────────────────────────────────────────────────────────
+
+  bot.action("settings_delete_open", async ctx => {
+    await ctx.answerCbQuery();
+    const cur = ctx.session.settings.autoDeleteSec;
+    await ctx.editMessageText(
+      `⏰ <b>Auto-Delete Timer</b>\n\nCurrent: <b>${adLabel(cur)}</b>\nSignal messages are deleted after this time:`,
+      { parse_mode: "HTML", ...autoDeleteKeyboard(cur) },
+    );
+  });
+
+  bot.action(/^autodel_(\d+)$/, async ctx => {
+    const sec = parseInt(ctx.match[1], 10);
+    const opt = AUTO_DELETE_OPTIONS.find(o => o.seconds === sec);
+    if (!opt) return;
+    ctx.session.settings.autoDeleteSec = sec;
+    await ctx.answerCbQuery(`✓ Auto-delete set to ${opt.label}`);
+    await showSettingsHub(ctx, true);
+  });
+
+  // ── Global error handler ───────────────────────────────────────────────────
 
   bot.catch((err, ctx) => {
-    logger.error({ err, update: ctx.update }, "Bot error");
+    logger.error({ err, updateType: ctx.updateType }, "Unhandled bot error");
+    if (ctx.callbackQuery) {
+      ctx.answerCbQuery("⚠️ Something went wrong. Please try again.").catch(() => {});
+    }
   });
 
-  bot.launch().then(() => {
-    logger.info("Telegram bot started");
-  }).catch((err) => {
-    logger.error({ err }, "Failed to launch Telegram bot");
-  });
-
-  process.once("SIGINT",  () => bot.stop("SIGINT"));
-  process.once("SIGTERM", () => bot.stop("SIGTERM"));
-
-  if (ADMIN_CHAT_ID) {
-    bot.telegram
-      .sendMessage(ADMIN_CHAT_ID, "🤖 <b>TG ADVANCE SIGNAL GENERATOR is online!</b>", { parse_mode: "HTML" })
-      .catch(() => {});
-  }
+  return bot;
 }
