@@ -159,7 +159,7 @@ const PACKAGES: Package[] = [
 const BINANCE_PAY_ID = "582355370";
 const USDT_ADDRESS   = "TYudgrH88fCWzNqthy6tXQAieeNcCBYmER";
 const ADMIN_CHAT_URL = "https://t.me/oawhidshakib";
-const COMMUNITY_URL  = "https://t.me/traderguide.bot";
+const COMMUNITY_URL  = "https://t.me/traderguide_bot";
 
 // ─── Pending Payments ─────────────────────────────────────────────────────────
 
@@ -595,16 +595,17 @@ function buildApprovalWelcomeText(pkg: Package, firstName: string): string {
   return (
     `┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓\n` +
     `🎉 <b>Payment Received! Congratulations!</b>\n` +
-    `┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛\n\n` +
-    `🟢 <b>Your account is now active.</b>\n\n` +
-    `👤 <b>Name:</b>  ${escapeHtml(firstName)}\n` +
+    `┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛\n` +
+    `🟢 <b>Your account is now active for Future signal</b>\n\n` +
+    `👤 <b>Name:</b> ${escapeHtml(firstName)}\n` +
     `🔮 <b>Types:</b>  Future Signal\n` +
-    `⏳ <b>Duration:</b>  ${escapeHtml(pkg.durationText)}\n` +
-    `📅 <b>END:</b>  ${escapeHtml(endLabel)}\n\n` +
+    `⏳ <b>Duration:</b>  ${escapeHtml(pkg.label)}\n` +
+    `📅 <b>END:</b>  ${escapeHtml(endLabel)}\n` +
     `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
     `🌟 Join our exclusive community, share with your friends!\n` +
     `👇 Click the link below:\n` +
-    `<a href="${COMMUNITY_URL}">T.me/traderguide.bot</a>\n` +
+    `<a href="${COMMUNITY_URL}">T.me/traderguide_bot</a>\n` +
+    `@traderguide_bot\n` +
     `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`
   );
 }
@@ -1176,6 +1177,25 @@ function buildBot(): Telegraf<MyContext> {
     }
     await ctx.answerCbQuery(`🗑 Removed ${targetId}`);
     accessStore.delete(targetId);
+
+    // Notify removed user
+    bot.telegram
+      .sendMessage(
+        targetId,
+        `⚠️ <b>Access Removed</b>\n\n` +
+        `You have been removed by admin.\n` +
+        `If you think this is a misunderstanding,\n` +
+        `just direct message the admin.`,
+        {
+          parse_mode: "HTML",
+          ...Markup.inlineKeyboard([
+            [Markup.button.url("💬 Chat with Admin", ADMIN_CHAT_URL)],
+            [Markup.button.callback("💳 Access Buy",   "access_buy")],
+          ]),
+        },
+      )
+      .catch(() => {});
+
     await ctx.editMessageText(buildAssessText(), { parse_mode: "HTML", ...buildAssessKeyboard() });
   });
 
@@ -1283,14 +1303,8 @@ function buildBot(): Telegraf<MyContext> {
       )
       .catch(() => {});
 
-    // Update admin message
-    await ctx.editMessageText(
-      `✅ <b>APPROVED</b>\n\n` +
-      `👤 User: <code>${payment.userId}</code>\n` +
-      `📦 Package: ${pkg.badge} ${escapeHtml(pkg.label)}\n` +
-      `✅ Access granted &amp; user notified.`,
-      { parse_mode: "HTML" },
-    );
+    // Delete admin payment message (clean up chat)
+    await ctx.deleteMessage().catch(() => {});
   });
 
   bot.action(/^reject_pay_(.+)$/, async ctx => {
@@ -1325,14 +1339,8 @@ function buildBot(): Telegraf<MyContext> {
       )
       .catch(() => {});
 
-    // Update admin message
-    await ctx.editMessageText(
-      `❌ <b>REJECTED</b>\n\n` +
-      `👤 User: <code>${payment.userId}</code>\n` +
-      `📦 Package: ${payment.packageId}\n` +
-      `User notified to contact admin.`,
-      { parse_mode: "HTML" },
-    );
+    // Delete admin payment message (clean up chat)
+    await ctx.deleteMessage().catch(() => {});
   });
 
   // ── Asset toggling ────────────────────────────────────────────────────────
