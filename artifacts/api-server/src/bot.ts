@@ -233,7 +233,8 @@ interface SessionData {
   state:
     | "idle" | "await_market" | "await_assets" | "await_dir_amount"
     | "await_settings_tf" | "await_settings_tz"
-    | "await_settings_strategy" | "await_settings_delete";
+    | "await_settings_strategy" | "await_settings_delete"
+    | "await_assess_add_user";
   market?: MarketType;
   selectedAssets: string[];
   direction: "BOTH" | "CALL" | "PUT";
@@ -285,7 +286,7 @@ function isWeekend(tz: TZ): boolean {
 }
 
 function adLabel(sec: number): string {
-  if (sec === 21600) return "default (6hr)";
+  if (sec === 21600) return "default ( means no 6hr)";
   const opt = AUTO_DELETE_OPTIONS.find(o => o.seconds === sec);
   return opt ? opt.label : `${sec}s`;
 }
@@ -445,13 +446,11 @@ const PRICE_LIST_KB = Markup.inlineKeyboard([
 function buildMarketKeyboard(userId: number): ReturnType<typeof Markup.inlineKeyboard> {
   const rows: ReturnType<typeof Markup.button.callback>[][] = [
     [
-      Markup.button.callback("🌍 Real",        "market_real"),
-      Markup.button.callback("📈 Quotex OTC",  "market_quotex"),
-    ],
-    [
-      Markup.button.callback("💼 Pocket OTC",  "market_po"),
-      Markup.button.callback("📊 IQ Option",   "market_iq"),
-      Markup.button.callback("🏦 Olymp OTC",   "market_olymp"),
+      Markup.button.callback("🌍 Real",       "market_real"),
+      Markup.button.callback("📈 Quotex",     "market_quotex"),
+      Markup.button.callback("💼 Pocket",     "market_po"),
+      Markup.button.callback("📊 IQ",         "market_iq"),
+      Markup.button.callback("🏦 Olymp",      "market_olymp"),
     ],
     ...(isAdmin(userId) ? [[Markup.button.callback("👑 ASSESS USER", "assess_users")]] : []),
     [Markup.button.callback("🔙 Back", "back_to_menu")],
@@ -494,6 +493,7 @@ function buildAssessKeyboard(): ReturnType<typeof Markup.inlineKeyboard> {
       Markup.button.callback("🗑 Remove", `assess_remove_${id}`),
     ]);
   }
+  rows.push([Markup.button.callback("➕ Add User", "assess_add_user")]);
   rows.push([Markup.button.callback("🔄 Refresh", "assess_users")]);
   rows.push([Markup.button.callback("🔙 Back to Markets", "back_to_market_from_assess")]);
   return Markup.inlineKeyboard(rows);
@@ -702,18 +702,18 @@ function buildBot(): Telegraf<MyContext> {
     const uid = ctx.from?.id ?? 0;
     const sel = ctx.session.selectedAssets;
     const s   = ctx.session.settings;
-    const tf  = s.timeframe === 1 ? "1 Minutes" : `${s.timeframe} Minutes`;
+    const tf  = s.timeframe === 1 ? "1Minutes" : `${s.timeframe}Minutes`;
     const accessLabel = getUserAccessLabel(uid);
     return (
-      `━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
+      `┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓\n` +
       `🎯 <b>Strategy Active</b>  :  <b>${escapeHtml(s.strategy.name)}</b>\n` +
       `⚙️ <b>TIMEFRAME</b>  :  <b>${tf}</b>\n` +
       `🌍 <b>TIMEZONE</b>  :  <b>${escapeHtml(tzDisplay(s.timezone))}</b>\n` +
-      `👤 <b>Access</b>  :  <b>${escapeHtml(accessLabel)}</b>\n` +
-      `⏰ <b>Auto Delete</b>  :  <b>${adLabel(s.autoDeleteSec)}</b>\n` +
-      `━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n` +
+      `🔑 <b>Asses</b>  :  <b>${escapeHtml(accessLabel)}</b>\n` +
+      `⏰ <b>Auto Delete List</b>  :  <b>${adLabel(s.autoDeleteSec)}</b>\n` +
+      `┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛\n\n` +
       `📌 <b>Select assets</b>  (min ${MIN_ASSETS}, max ${MAX_ASSETS})\n` +
-      `<b>Selected</b> : <i>${sel.length > 0 ? escapeHtml(sel.join(", ")) : "none"}</i>`
+      `<b>Selected</b>  :  <i>${sel.length > 0 ? escapeHtml(sel.join(", ")) : "none"}</i>`
     );
   }
 
@@ -869,7 +869,58 @@ function buildBot(): Telegraf<MyContext> {
     await ctx.answerCbQuery();
     ctx.session.state = "await_market";
     ctx.session.selectedAssets = [];
-    await ctx.editMessageText("📊 <b>Select Market Type:</b>", { parse_mode: "HTML", ...marketKeyboard });
+    const uid = ctx.from?.id ?? 0;
+    await ctx.editMessageText("📊 <b>Select Market Type:</b>", { parse_mode: "HTML", ...buildMarketKeyboard(uid) });
+  });
+
+  // ── Assess User panel ──────────────────────────────────────────────────────
+
+  bot.action("assess_users", async ctx => {
+    await ctx.answerCbQuery();
+    if (!isAdmin(ctx.from?.id ?? 0)) return;
+    await ctx.editMessageText(buildAssessText(), { parse_mode: "HTML", ...buildAssessKeyboard() });
+  });
+
+  bot.action("assess_noop", async ctx => {
+    await ctx.answerCbQuery();
+  });
+
+  bot.action(/^assess_remove_(\d+)$/, async ctx => {
+    await ctx.answerCbQuery();
+    if (!isAdmin(ctx.from?.id ?? 0)) return;
+    const targetId = parseInt(ctx.match[1], 10);
+    if (ADMIN_ID_NUM !== null && targetId === ADMIN_ID_NUM) {
+      await ctx.answerCbQuery("🔒 Cannot remove Admin!", { show_alert: true });
+      return;
+    }
+    accessStore.delete(targetId);
+    await ctx.editMessageText(buildAssessText(), { parse_mode: "HTML", ...buildAssessKeyboard() });
+  });
+
+  bot.action("back_to_market_from_assess", async ctx => {
+    await ctx.answerCbQuery();
+    const uid = ctx.from?.id ?? 0;
+    ctx.session.state = "await_market";
+    await ctx.editMessageText("📊 <b>Select Market Type:</b>", { parse_mode: "HTML", ...buildMarketKeyboard(uid) });
+  });
+
+  bot.action("assess_add_user", async ctx => {
+    await ctx.answerCbQuery();
+    if (!isAdmin(ctx.from?.id ?? 0)) return;
+    ctx.session.state = "await_assess_add_user";
+    await ctx.editMessageText(
+      `➕ <b>Add User Access</b>\n\n` +
+      `Send a message in this format:\n` +
+      `<code>&lt;userId&gt; &lt;days|lifetime&gt;</code>\n\n` +
+      `Examples:\n` +
+      `• <code>123456789 30</code>  — 30-day access\n` +
+      `• <code>123456789 lifetime</code>  — lifetime access\n\n` +
+      `<i>Tip: User can find their ID with /myid</i>`,
+      {
+        parse_mode: "HTML",
+        ...Markup.inlineKeyboard([[Markup.button.callback("🔙 Cancel", "assess_users")]]),
+      },
+    );
   });
 
   // Asset toggling
@@ -1093,6 +1144,57 @@ function buildBot(): Telegraf<MyContext> {
     ctx.session.settings.autoDeleteSec = sec;
     await ctx.answerCbQuery(`✓ Auto-delete set to ${opt.label}`);
     await showSettingsHub(ctx, true);
+  });
+
+  // ── Text message handler (add user flow) ───────────────────────────────────
+
+  bot.on("message", async ctx => {
+    if (ctx.session.state !== "await_assess_add_user") return;
+    if (!isAdmin(ctx.from?.id ?? 0)) return;
+
+    const text = ("text" in ctx.message ? ctx.message.text : "").trim();
+    const parts = text.split(/\s+/);
+    const rawId = parts[0] ?? "";
+    const param = parts[1] ?? "";
+    const targetId = parseInt(rawId, 10);
+
+    if (!targetId || !param) {
+      await ctx.reply(
+        `⚠️ Invalid format. Use:\n<code>&lt;userId&gt; &lt;days|lifetime&gt;</code>`,
+        { parse_mode: "HTML" },
+      );
+      return;
+    }
+
+    if (ADMIN_ID_NUM !== null && targetId === ADMIN_ID_NUM) {
+      await ctx.reply(`🔒 <b>Admin is already locked with permanent access.</b>`, { parse_mode: "HTML" });
+      return;
+    }
+
+    ctx.session.state = "idle";
+
+    if (param.toLowerCase() === "lifetime") {
+      accessStore.set(targetId, { expiresAt: null });
+      await ctx.reply(
+        `✅ <b>Lifetime access</b> granted to <code>${targetId}</code>.\n\n` +
+        `Use 👑 ASSESS USER to manage all users.`,
+        { parse_mode: "HTML", ...Markup.inlineKeyboard([[Markup.button.callback("👑 View Assess Panel", "assess_users")]]) },
+      );
+    } else {
+      const days = parseInt(param, 10);
+      if (!days || days <= 0) {
+        await ctx.reply("⚠️ Days must be a positive number.");
+        return;
+      }
+      const expiresAt = Date.now() + days * 86_400_000;
+      accessStore.set(targetId, { expiresAt });
+      await ctx.reply(
+        `✅ <b>${days}-day access</b> granted to <code>${targetId}</code>.\n` +
+        `Expires: <code>${new Date(expiresAt).toUTCString()}</code>\n\n` +
+        `Use 👑 ASSESS USER to manage all users.`,
+        { parse_mode: "HTML", ...Markup.inlineKeyboard([[Markup.button.callback("👑 View Assess Panel", "assess_users")]]) },
+      );
+    }
   });
 
   // ── Global error handler ───────────────────────────────────────────────────
