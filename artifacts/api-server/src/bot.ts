@@ -203,15 +203,19 @@ const SIGNAL_COUNTS = [5, 10, 15, 20, 50, 70];
 interface AccessEntry { expiresAt: number | null }
 const accessStore = new Map<number, AccessEntry>();
 
+const ADMIN_ID_NUM: number | null = ADMIN_CHAT_ID
+  ? parseInt(ADMIN_CHAT_ID.trim(), 10) || null
+  : null;
+
 function hasAccess(userId: number): boolean {
-  if (ADMIN_CHAT_ID && userId.toString() === ADMIN_CHAT_ID.trim()) return true;
+  if (ADMIN_ID_NUM !== null && userId === ADMIN_ID_NUM) return true;
   const e = accessStore.get(userId);
   if (!e) return false;
   if (e.expiresAt === null) return true;
   return Date.now() < e.expiresAt;
 }
 function isAdmin(userId: number): boolean {
-  return !!ADMIN_CHAT_ID && userId.toString() === ADMIN_CHAT_ID.trim();
+  return ADMIN_ID_NUM !== null && userId === ADMIN_ID_NUM;
 }
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
@@ -543,6 +547,7 @@ export async function startBot(): Promise<void> {
     return;
   }
 
+  logger.info({ adminId: ADMIN_ID_NUM, rawEnv: ADMIN_CHAT_ID ? "[set]" : "[not set]" }, "Bot admin config");
   await initAdapters();
 
   await launchWithRetry();
@@ -677,6 +682,15 @@ function buildBot(): Telegraf<MyContext> {
   }
 
   // ── Commands ───────────────────────────────────────────────────────────────
+
+  bot.command("myid", async ctx => {
+    const uid = ctx.from?.id ?? 0;
+    const adminStatus = isAdmin(uid) ? "✅ You are the admin" : "❌ Not admin";
+    await ctx.reply(
+      `🆔 Your Telegram ID: <code>${uid}</code>\n${adminStatus}\n\nBot admin ID: <code>${ADMIN_ID_NUM ?? "not set"}</code>`,
+      { parse_mode: "HTML" },
+    );
+  });
 
   bot.start(async ctx => {
     ctx.session.state = "idle";
