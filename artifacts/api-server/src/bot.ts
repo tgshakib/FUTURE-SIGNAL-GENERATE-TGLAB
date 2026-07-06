@@ -171,9 +171,13 @@ interface PendingPayment {
   packageId: string;
   chatId: number;
   adminMsgId?: number;
+  userReviewMsgId?: number;  // "⏳ Payment Under Review" message sent to user
 }
 
 const pendingPayments = new Map<string, PendingPayment>();
+
+// Tracks the "🎉 Payment Received" welcome message per user so it can be deleted later
+const approvalMsgStore = new Map<number, { chatId: number; msgId: number }>();
 
 // ─── Constants ─────────────────────────────────────────────────────────────────
 
@@ -985,12 +989,18 @@ function buildBot(): Telegraf<MyContext> {
 
   bot.start(async ctx => {
     ctx.session.state = "idle";
-    // Store user info on first contact
     const uid = ctx.from?.id ?? 0;
+    // Store user info on first contact
     const existing = accessStore.get(uid);
     if (existing) {
       existing.username  = ctx.from?.username;
       existing.firstName = ctx.from?.first_name;
+    }
+    // Delete any lingering approval welcome message
+    const stored = approvalMsgStore.get(uid);
+    if (stored) {
+      bot.telegram.deleteMessage(stored.chatId, stored.msgId).catch(() => {});
+      approvalMsgStore.delete(uid);
     }
     await sendMainMenu(ctx);
   });
@@ -1005,6 +1015,11 @@ function buildBot(): Telegraf<MyContext> {
   bot.command("futuresignal", async ctx => {
     const uid = ctx.from?.id ?? 0;
     if (!hasAccess(uid)) { await showPaywall(ctx, false); return; }
+    const stored = approvalMsgStore.get(uid);
+    if (stored) {
+      bot.telegram.deleteMessage(stored.chatId, stored.msgId).catch(() => {});
+      approvalMsgStore.delete(uid);
+    }
     ctx.session.state = "await_market";
     await ctx.reply("📊 <b>Select Market Type:</b>", { parse_mode: "HTML", ...buildMarketKeyboard(uid) });
   });
@@ -1061,6 +1076,12 @@ function buildBot(): Telegraf<MyContext> {
     await ctx.answerCbQuery();
     const uid = ctx.from?.id ?? 0;
     if (!hasAccess(uid)) { await showPaywall(ctx, true); return; }
+    // Delete any lingering approval welcome message
+    const stored = approvalMsgStore.get(uid);
+    if (stored) {
+      bot.telegram.deleteMessage(stored.chatId, stored.msgId).catch(() => {});
+      approvalMsgStore.delete(uid);
+    }
     ctx.session.state = "await_market";
     await ctx.editMessageText("📊 <b>Select Market Type:</b>", { parse_mode: "HTML", ...buildMarketKeyboard(uid) });
   });
@@ -1294,13 +1315,17 @@ function buildBot(): Telegraf<MyContext> {
       packageId: pkg.id,
     });
 
-    // Notify user
+    // Delete user's "Under Review" message
+    if (payment.userReviewMsgId) {
+      bot.telegram.deleteMessage(payment.chatId, payment.userReviewMsgId).catch(() => {});
+    }
+
+    // Send welcome & store its message ID so it can be deleted on next /start or futuresignal tap
     bot.telegram
-      .sendMessage(
-        payment.userId,
-        buildApprovalWelcomeText(pkg, payment.firstName),
-        { parse_mode: "HTML" },
-      )
+      .sendMessage(payment.userId, buildApprovalWelcomeText(pkg, payment.firstName), { parse_mode: "HTML" })
+      .then(sent => {
+        approvalMsgStore.set(payment.userId, { chatId: payment.chatId, msgId: sent.message_id });
+      })
       .catch(() => {});
 
     // Delete admin payment message (clean up chat)
@@ -1318,6 +1343,11 @@ function buildBot(): Telegraf<MyContext> {
     }
 
     pendingPayments.delete(payId);
+
+    // Delete user's "Under Review" message
+    if (payment.userReviewMsgId) {
+      bot.telegram.deleteMessage(payment.chatId, payment.userReviewMsgId).catch(() => {});
+    }
 
     // Notify user of rejection
     bot.telegram
@@ -1621,8 +1651,8 @@ function buildBot(): Telegraf<MyContext> {
         chatId: ctx.chat!.id,
       });
 
-      // Confirm to user
-      await ctx.reply(
+      // Confirm to user — store message ID so we can delete it on approve/reject
+      const reviewMsg = await ctx.reply(
         `┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓\n` +
         `⏳ <b>Payment Under Review</b>\n` +
         `┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛\n\n` +
@@ -1632,6 +1662,8 @@ function buildBot(): Telegraf<MyContext> {
         `<i>Usually within a few hours.</i>`,
         { parse_mode: "HTML" },
       );
+      const pp = pendingPayments.get(payId);
+      if (pp) pp.userReviewMsgId = reviewMsg.message_id;
 
       // Forward to admin with approve/reject
       if (ADMIN_CHAT_ID && ADMIN_ID_NUM) {
