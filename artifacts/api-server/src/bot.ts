@@ -530,9 +530,7 @@ const EXPIRY_WARNING_KB = Markup.inlineKeyboard([
 
 function buildPriceListText(): string {
   return (
-    `┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓\n` +
     `💎 <b>Subscription Plans — Future Signal</b>\n` +
-    `┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛\n\n` +
     PACKAGES.map(p =>
       `${p.badge}  <b>${p.label}</b>  ·  <code>$${p.price}</code>`
     ).join("\n") +
@@ -554,9 +552,7 @@ function buildPriceListKeyboard(): ReturnType<typeof Markup.inlineKeyboard> {
 
 function buildPkgDetailText(pkg: Package): string {
   return (
-    `┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓\n` +
     `✅ <b>You selected:</b>\n` +
-    `┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛\n\n` +
     `📦  ${pkg.badge} <b>ACCESS · ${escapeHtml(pkg.label)}</b>\n` +
     `💰  <b>Amount:</b>  <code>$${pkg.price}</code>\n` +
     `⏱  <b>Duration:</b>  <i>${escapeHtml(pkg.durationText)}</i>\n\n` +
@@ -573,9 +569,7 @@ function buildPkgDetailKeyboard(pkgId: string): ReturnType<typeof Markup.inlineK
 
 function buildPaymentInstructionsText(pkg: Package): string {
   return (
-    `┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓\n` +
     `💳 <b>Payment Instructions</b>\n` +
-    `┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛\n\n` +
     `📦 <b>Package:</b>  ${pkg.badge} ${escapeHtml(pkg.label)}\n` +
     `💰 <b>Amount:</b>  <code>$${pkg.price}</code>\n\n` +
     `💛 <b>Binance Pay</b> <i>(Business Official)</i>\n` +
@@ -597,9 +591,7 @@ function buildPaymentInstructionsKeyboard(pkgId: string): ReturnType<typeof Mark
 function buildApprovalWelcomeText(pkg: Package, firstName: string): string {
   const endLabel = pkgEndLabel(pkg);
   return (
-    `┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓\n` +
     `🎉 <b>Payment Received! Congratulations!</b>\n` +
-    `┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛\n` +
     `🟢 <b>Your account is now active for Future signal</b>\n\n` +
     `👤 <b>Name:</b> ${escapeHtml(firstName)}\n` +
     `🔮 <b>Types:</b>  Future Signal\n` +
@@ -639,9 +631,7 @@ function buildMarketKeyboard(userId: number): ReturnType<typeof Markup.inlineKey
 
 function buildAssessText(): string {
   let text =
-    `┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓\n` +
     `👑 <b>ASSESS USER PANEL</b>\n` +
-    `┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛\n\n` +
     `🔒 <code>${ADMIN_ID_NUM}</code>  —  <b>Admin</b>  <i>(LOCKED)</i>\n\n`;
 
   if (accessStore.size === 0) {
@@ -860,9 +850,7 @@ function startExpiryWatcher(bot: Telegraf<MyContext>): void {
         bot.telegram
           .sendMessage(
             userId,
-            `┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓\n` +
             `⚠️ <b>Subscription Expiring Soon!</b>\n` +
-            `┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛\n\n` +
             `⏰ Your <b>Future Signal Generator</b> subscription\n` +
             `expires in <b>less than 1 hour!</b>\n\n` +
             `🔴 Get access now before it's too late! 🔴`,
@@ -930,13 +918,11 @@ function buildBot(): Telegraf<MyContext> {
     const tf   = s.timeframe === 1 ? "1Minutes" : `${s.timeframe}Minutes`;
     const accessLabel = getUserAccessLabel(uid);
     return (
-      `┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓\n` +
       `🎯 <b>Strategy Active</b>  :  <b>${escapeHtml(s.strategy.name)}</b>\n` +
       `⚙️ <b>TIMEFRAME</b>  :  <b>${tf}</b>\n` +
       `🌍 <b>TIMEZONE</b>  :  <b>${escapeHtml(tzDisplay(s.timezone))}</b>\n` +
       `🔑 <b>Asses</b>  :  <b>${escapeHtml(accessLabel)}</b>\n` +
       `⏰ <b>Auto Delete List</b>  :  <b>${adLabel(s.autoDeleteSec)}</b>\n` +
-      `┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛\n\n` +
       `📌 <b>Select assets</b>  (min ${MIN_ASSETS}, max ${MAX_ASSETS})\n` +
       `<b>Selected</b>  :  <i>${sel.length > 0 ? escapeHtml(sel.join(", ")) : "none"}</i>`
     );
@@ -1134,9 +1120,7 @@ function buildBot(): Telegraf<MyContext> {
     ctx.session.pendingPackageId = pkg.id;
     ctx.session.state = "await_payment_screenshot";
     await ctx.editMessageText(
-      `┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓\n` +
       `📸 <b>Send Payment Screenshot</b>\n` +
-      `┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛\n\n` +
       `📦 <b>Package:</b>  ${pkg.badge} ${escapeHtml(pkg.label)}\n\n` +
       `Take a screenshot of your <b>completed payment</b>\n` +
       `and send it here as a <b>photo</b>.\n\n` +
@@ -1232,9 +1216,7 @@ function buildBot(): Telegraf<MyContext> {
     if (!isAdmin(ctx.from?.id ?? 0)) return;
     ctx.session.state = "await_assess_username";
     await ctx.editMessageText(
-      `┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓\n` +
       `➕ <b>Add User — Step 1 of 2</b>\n` +
-      `┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛\n\n` +
       `Send the <b>Telegram User ID</b> of the user\n` +
       `you want to grant access to.\n\n` +
       `<i>💡 The user can find their ID by sending\n/myid to this bot.</i>`,
@@ -1353,9 +1335,7 @@ function buildBot(): Telegraf<MyContext> {
     bot.telegram
       .sendMessage(
         payment.userId,
-        `┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓\n` +
         `❌ <b>Payment Not Confirmed</b>\n` +
-        `┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛\n\n` +
         `We could not confirm your payment.\n\n` +
         `If you think this is a mistake,\n` +
         `please contact admin directly:`,
@@ -1605,9 +1585,7 @@ function buildBot(): Telegraf<MyContext> {
       ctx.session.state = "idle";
 
       await ctx.reply(
-        `┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓\n` +
         `📦 <b>Select Package — Step 2 of 2</b>\n` +
-        `┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛\n\n` +
         `👤 <b>User ID:</b>  <code>${targetId}</code>\n\n` +
         `Choose the access package for this user:`,
         { parse_mode: "HTML", ...buildAssessPackageKeyboard() },
@@ -1653,9 +1631,7 @@ function buildBot(): Telegraf<MyContext> {
 
       // Confirm to user — store message ID so we can delete it on approve/reject
       const reviewMsg = await ctx.reply(
-        `┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓\n` +
         `⏳ <b>Payment Under Review</b>\n` +
-        `┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛\n\n` +
         `✅ Your screenshot has been sent to admin.\n\n` +
         `📦 <b>Package:</b>  ${pkg.badge} ${escapeHtml(pkg.label)}\n` +
         `⏱ You will be notified once approved.\n\n` +
@@ -1668,9 +1644,7 @@ function buildBot(): Telegraf<MyContext> {
       // Forward to admin with approve/reject
       if (ADMIN_CHAT_ID && ADMIN_ID_NUM) {
         const caption =
-          `┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓\n` +
           `💳 <b>New Payment Screenshot</b>\n` +
-          `┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛\n\n` +
           `👤 <b>User:</b>  ${escapeHtml(firstName)}${username ? ` (@${escapeHtml(username)})` : ""}\n` +
           `🆔 <b>ID:</b>  <code>${uid}</code>\n` +
           `📦 <b>Package:</b>  ${pkg.badge} ${escapeHtml(pkg.label)}\n` +
