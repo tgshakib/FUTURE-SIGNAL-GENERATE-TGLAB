@@ -3,7 +3,7 @@ import { logger } from "./lib/logger";
 import { adapters, initAdapters, analyseSignalQuality } from "./lib/broker-adapter";
 
 const BOT_TOKEN    = process.env["TELEGRAM_BOT_TOKEN"];
-const ADMIN_CHAT_ID = process.env["TELEGRAM_ADMIN_CHAT_ID"];
+const ADMIN_CHAT_ID = process.env["BOT_ADMIN_ID"] ?? process.env["TELEGRAM_ADMIN_CHAT_ID"];
 
 // ─── Asset Lists ───────────────────────────────────────────────────────────────
 
