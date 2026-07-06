@@ -464,16 +464,16 @@ async function buildSignalMessage(
     }
 
     // ── 2. Build time slots ─────────────────────────────────────────────────
-    const startOffsetMs =
-      (strategy.startMin + Math.random() * (strategy.startMax - strategy.startMin)) * 60_000;
+    // Start offset: 1–2 minutes from now (small warm-up)
+    const startOffsetMs = (1 + Math.random()) * 60_000;
     let cursor = new Date(nowMs + startOffsetMs);
     const times: string[] = [];
     for (let i = 0; i < effectiveCount; i++) {
       times.push(`${pad2(cursor.getUTCHours())}:${pad2(cursor.getUTCMinutes())}`);
-      cursor = new Date(
-        cursor.getTime() +
-        (strategy.gapMin + Math.floor(Math.random() * (strategy.gapMax - strategy.gapMin + 1))) * 60_000,
-      );
+      // Gap = timeframe ± 1 minute (natural look, never less than 1 min)
+      const jitter = Math.floor(Math.random() * 3) - 1; // -1, 0, or +1
+      const gapMin = Math.max(1, timeframe + jitter);
+      cursor = new Date(cursor.getTime() + gapMin * 60_000);
     }
 
     // ── 3. Assign per-slot direction ────────────────────────────────────────
