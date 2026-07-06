@@ -2,7 +2,7 @@ import { Telegraf, Markup, session } from "telegraf";
 import { logger } from "./lib/logger";
 import { adapters, initAdapters, analyseSignalQuality } from "./lib/broker-adapter";
 
-const BOT_TOKEN    = process.env["TELEGRAM_BOT_TOKEN"];
+const BOT_TOKEN     = process.env["TELEGRAM_BOT_TOKEN"];
 const ADMIN_CHAT_ID = process.env["BOT_ADMIN_ID"] ?? process.env["TELEGRAM_ADMIN_CHAT_ID"];
 
 // ─── Asset Lists ───────────────────────────────────────────────────────────────
@@ -90,86 +90,25 @@ const TIMEZONES: TZ[] = [
 // ─── Strategies ────────────────────────────────────────────────────────────────
 
 interface Strategy {
-  id: string;
-  name: string;
-  badge: string;
-  /** Min minutes before first signal */
-  startMin: number;
-  /** Max minutes before first signal */
-  startMax: number;
-  /** Min gap between signals (minutes) */
-  gapMin: number;
-  /** Max gap between signals (minutes) */
-  gapMax: number;
-  /** Multiplier applied to user-selected count (0.5 = half, 1 = full) */
-  countMult: number;
-  noMartingale: boolean;
-  requireConfirm: boolean;
-  filterLowVol: boolean;
+  id: string; name: string; badge: string;
+  startMin: number; startMax: number;
+  gapMin: number; gapMax: number;
+  countMult: number; noMartingale: boolean;
+  requireConfirm: boolean; filterLowVol: boolean;
   description: string;
 }
 
 const STRATEGIES: Strategy[] = [
-  {
-    id: "trendpulse", name: "TrendPulse Pro", badge: "⚡",
-    startMin: 2, startMax: 3, gapMin: 2, gapMax: 4, countMult: 1,
-    noMartingale: false, requireConfirm: false, filterLowVol: true,
-    description: "High-momentum trend follower",
-  },
-  {
-    id: "otcflow", name: "OTC Flow Confirm", badge: "🌊",
-    startMin: 2, startMax: 4, gapMin: 3, gapMax: 5, countMult: 0.8,
-    noMartingale: false, requireConfirm: true, filterLowVol: true,
-    description: "Confirms OTC flow before entry",
-  },
-  {
-    id: "livetrendsync", name: "LiveTrend Sync", badge: "🔄",
-    startMin: 2, startMax: 3, gapMin: 2, gapMax: 3, countMult: 1,
-    noMartingale: false, requireConfirm: false, filterLowVol: false,
-    description: "Syncs with live market trend",
-  },
-  {
-    id: "momentumlock", name: "Momentum Lock", badge: "🔒",
-    startMin: 3, startMax: 5, gapMin: 3, gapMax: 6, countMult: 0.7,
-    noMartingale: false, requireConfirm: true, filterLowVol: true,
-    description: "Locks in on strong momentum candles only",
-  },
-  {
-    id: "signalshield", name: "SignalShield", badge: "🛡️",
-    startMin: 2, startMax: 4, gapMin: 4, gapMax: 7, countMult: 0.6,
-    noMartingale: true, requireConfirm: true, filterLowVol: true,
-    description: "Conservative — fewer, higher-quality signals",
-  },
-  {
-    id: "b2btrend", name: "Back-to-Back Trend", badge: "🔁",
-    startMin: 2, startMax: 3, gapMin: 2, gapMax: 4, countMult: 1,
-    noMartingale: false, requireConfirm: true, filterLowVol: true,
-    description: "Back-to-back wins only when setup confirmed again",
-  },
-  {
-    id: "nomtg", name: "No-Martingale Trend", badge: "🚫",
-    startMin: 3, startMax: 5, gapMin: 4, gapMax: 8, countMult: 0.5,
-    noMartingale: true, requireConfirm: true, filterLowVol: true,
-    description: "Strictly no martingale — confirmed setups only",
-  },
-  {
-    id: "dualmarket", name: "Dual Market Confirm", badge: "🔀",
-    startMin: 2, startMax: 4, gapMin: 3, gapMax: 5, countMult: 0.8,
-    noMartingale: false, requireConfirm: true, filterLowVol: true,
-    description: "Cross-validates signal across two markets",
-  },
-  {
-    id: "precisioncandle", name: "Precision Candle Scan", badge: "🔬",
-    startMin: 4, startMax: 6, gapMin: 5, gapMax: 9, countMult: 0.5,
-    noMartingale: true, requireConfirm: true, filterLowVol: true,
-    description: "Deep candle analysis — fewer but very strong signals",
-  },
-  {
-    id: "riskguard", name: "RiskGuard Signals", badge: "🛡",
-    startMin: 3, startMax: 5, gapMin: 5, gapMax: 10, countMult: 0.6,
-    noMartingale: true, requireConfirm: true, filterLowVol: true,
-    description: "Maximum risk management — low frequency, high precision",
-  },
+  { id:"trendpulse",     name:"TrendPulse Pro",         badge:"⚡", startMin:2, startMax:3, gapMin:2, gapMax:4,  countMult:1,   noMartingale:false, requireConfirm:false, filterLowVol:true,  description:"High-momentum trend follower" },
+  { id:"otcflow",        name:"OTC Flow Confirm",        badge:"🌊", startMin:2, startMax:4, gapMin:3, gapMax:5,  countMult:0.8, noMartingale:false, requireConfirm:true,  filterLowVol:true,  description:"Confirms OTC flow before entry" },
+  { id:"livetrendsync",  name:"LiveTrend Sync",          badge:"🔄", startMin:2, startMax:3, gapMin:2, gapMax:3,  countMult:1,   noMartingale:false, requireConfirm:false, filterLowVol:false, description:"Syncs with live market trend" },
+  { id:"momentumlock",   name:"Momentum Lock",           badge:"🔒", startMin:3, startMax:5, gapMin:3, gapMax:6,  countMult:0.7, noMartingale:false, requireConfirm:true,  filterLowVol:true,  description:"Locks in on strong momentum candles only" },
+  { id:"signalshield",   name:"SignalShield",            badge:"🛡️",startMin:2, startMax:4, gapMin:4, gapMax:7,  countMult:0.6, noMartingale:true,  requireConfirm:true,  filterLowVol:true,  description:"Conservative — fewer, higher-quality signals" },
+  { id:"b2btrend",       name:"Back-to-Back Trend",      badge:"🔁", startMin:2, startMax:3, gapMin:2, gapMax:4,  countMult:1,   noMartingale:false, requireConfirm:true,  filterLowVol:true,  description:"Back-to-back wins only when setup confirmed again" },
+  { id:"nomtg",          name:"No-Martingale Trend",     badge:"🚫", startMin:3, startMax:5, gapMin:4, gapMax:8,  countMult:0.5, noMartingale:true,  requireConfirm:true,  filterLowVol:true,  description:"Strictly no martingale — confirmed setups only" },
+  { id:"dualmarket",     name:"Dual Market Confirm",     badge:"🔀", startMin:2, startMax:4, gapMin:3, gapMax:5,  countMult:0.8, noMartingale:false, requireConfirm:true,  filterLowVol:true,  description:"Cross-validates signal across two markets" },
+  { id:"precisioncandle",name:"Precision Candle Scan",   badge:"🔬", startMin:4, startMax:6, gapMin:5, gapMax:9,  countMult:0.5, noMartingale:true,  requireConfirm:true,  filterLowVol:true,  description:"Deep candle analysis — fewer but very strong signals" },
+  { id:"riskguard",      name:"RiskGuard Signals",       badge:"🛡", startMin:3, startMax:5, gapMin:5, gapMax:10, countMult:0.6, noMartingale:true,  requireConfirm:true,  filterLowVol:true,  description:"Maximum risk management — low frequency, high precision" },
 ];
 
 const DEFAULT_STRATEGY = STRATEGIES[0]!;
@@ -179,16 +118,62 @@ const DEFAULT_STRATEGY = STRATEGIES[0]!;
 interface AutoDeleteOption { label: string; seconds: number }
 
 const AUTO_DELETE_OPTIONS: AutoDeleteOption[] = [
-  { label: "10s",   seconds: 10 },
-  { label: "30s",   seconds: 30 },
-  { label: "1 Min", seconds: 60 },
-  { label: "5 Min", seconds: 300 },
-  { label: "30 Min",seconds: 1800 },
-  { label: "1 Hr",  seconds: 3600 },
-  { label: "6 Hr",  seconds: 21600 },
+  { label: "10s",    seconds: 10    },
+  { label: "30s",    seconds: 30    },
+  { label: "1 Min",  seconds: 60    },
+  { label: "5 Min",  seconds: 300   },
+  { label: "30 Min", seconds: 1800  },
+  { label: "1 Hr",   seconds: 3600  },
+  { label: "6 Hr",   seconds: 21600 },
 ];
 
 const DEFAULT_AUTO_DELETE = AUTO_DELETE_OPTIONS[6]!; // 6 Hr default
+
+// ─── Packages ─────────────────────────────────────────────────────────────────
+
+interface Package {
+  id: string;
+  badge: string;
+  name: string;
+  days: number | null;   // null = lifetime
+  price: number;
+  label: string;         // e.g. "60 Days"
+  durationText: string;  // e.g. "2 Months Future Signal"
+}
+
+const PACKAGES: Package[] = [
+  { id:"d1",    badge:"🔹", name:"Starter",  days:1,    price:5,   label:"1 Day",      durationText:"1 Day Future Signal"      },
+  { id:"d6",    badge:"🔸", name:"Basic",    days:6,    price:10,  label:"6 Days",     durationText:"6 Days Future Signal"     },
+  { id:"d14",   badge:"🥉", name:"Silver",   days:14,   price:25,  label:"14 Days",    durationText:"2 Weeks Future Signal"    },
+  { id:"d30",   badge:"🥈", name:"Gold",     days:30,   price:48,  label:"30 Days",    durationText:"1 Month Future Signal"    },
+  { id:"d60",   badge:"💎", name:"Diamond",  days:60,   price:69,  label:"60 Days",    durationText:"2 Months Future Signal"   },
+  { id:"d90",   badge:"🌟", name:"Platinum", days:90,   price:150, label:"3 Months",   durationText:"3 Months Future Signal"   },
+  { id:"d150",  badge:"🔥", name:"Elite",    days:150,  price:170, label:"5 Months",   durationText:"5 Months Future Signal"   },
+  { id:"d270",  badge:"👑", name:"Premium",  days:270,  price:200, label:"9 Months",   durationText:"9 Months Future Signal"   },
+  { id:"d365",  badge:"🏆", name:"Annual",   days:365,  price:280, label:"12 Months",  durationText:"12 Months Future Signal"  },
+  { id:"d730",  badge:"🌙", name:"2-Year",   days:730,  price:320, label:"2 Years",    durationText:"2 Years Future Signal"    },
+  { id:"d1095", badge:"⚡", name:"3-Year",   days:1095, price:500, label:"3 Years",    durationText:"3 Years Future Signal"    },
+  { id:"life",  badge:"♾️", name:"Lifetime", days:null, price:919, label:"Lifetime",   durationText:"Lifetime Future Signal"   },
+];
+
+const BINANCE_PAY_ID = "582355370";
+const USDT_ADDRESS   = "TYudgrH88fCWzNqthy6tXQAieeNcCBYmER";
+const ADMIN_CHAT_URL = "https://t.me/oawhidshakib";
+const COMMUNITY_URL  = "https://t.me/traderguide.bot";
+
+// ─── Pending Payments ─────────────────────────────────────────────────────────
+
+interface PendingPayment {
+  id: string;
+  userId: number;
+  username?: string;
+  firstName: string;
+  packageId: string;
+  chatId: number;
+  adminMsgId?: number;
+}
+
+const pendingPayments = new Map<string, PendingPayment>();
 
 // ─── Constants ─────────────────────────────────────────────────────────────────
 
@@ -200,7 +185,14 @@ const SIGNAL_COUNTS = [5, 10, 15, 20, 50, 70];
 
 // ─── Access Store ─────────────────────────────────────────────────────────────
 
-interface AccessEntry { expiresAt: number | null }
+interface AccessEntry {
+  expiresAt: number | null;
+  username?: string;
+  firstName?: string;
+  packageId?: string;
+  warnedExpiry?: boolean;
+}
+
 const accessStore = new Map<number, AccessEntry>();
 
 const ADMIN_ID_NUM: number | null = ADMIN_CHAT_ID
@@ -214,6 +206,7 @@ function hasAccess(userId: number): boolean {
   if (e.expiresAt === null) return true;
   return Date.now() < e.expiresAt;
 }
+
 function isAdmin(userId: number): boolean {
   return ADMIN_ID_NUM !== null && userId === ADMIN_ID_NUM;
 }
@@ -231,16 +224,25 @@ interface Settings {
 
 interface SessionData {
   state:
-    | "idle" | "await_market" | "await_assets" | "await_dir_amount"
-    | "await_settings_tf" | "await_settings_tz"
-    | "await_settings_strategy" | "await_settings_delete"
-    | "await_assess_add_user";
+    | "idle"
+    | "await_market"
+    | "await_assets"
+    | "await_dir_amount"
+    | "await_settings_tf"
+    | "await_settings_tz"
+    | "await_settings_strategy"
+    | "await_settings_delete"
+    | "await_assess_username"
+    | "await_payment_screenshot";
   market?: MarketType;
   selectedAssets: string[];
   direction: "BOTH" | "CALL" | "PUT";
   settings: Settings;
   pendingDeleteIds: number[];
   pendingDeleteChatId?: number;
+  pendingPackageId?: string;
+  assessTargetId?: number;
+  assessTargetUsername?: string;
 }
 
 type MyContext = import("telegraf").Context & { session: SessionData };
@@ -254,8 +256,8 @@ function escapeHtml(s: string): string {
 }
 
 function getAssetsForMarket(m: MarketType): string[] {
-  if (m === "real")    return realAssets;
-  if (m === "quotex")  return quotexOtcAssets;
+  if (m === "real")   return realAssets;
+  if (m === "quotex") return quotexOtcAssets;
   return brokerSharedOtcAssets;
 }
 
@@ -303,6 +305,20 @@ function getUserAccessLabel(userId: number): string {
   return days > 0 ? `${days}d ${hrs}h remaining ⏳` : `${hrs}h remaining ⏳`;
 }
 
+function pkgEndLabel(pkg: Package): string {
+  if (pkg.days === null) return "Lifetime ♾️";
+  const exp = new Date(Date.now() + pkg.days * 86_400_000);
+  return `${pad2(exp.getUTCDate())}/${pad2(exp.getUTCMonth() + 1)}/${exp.getUTCFullYear()}`;
+}
+
+function getPkg(id: string): Package | undefined {
+  return PACKAGES.find(p => p.id === id);
+}
+
+function genPaymentId(): string {
+  return Math.random().toString(36).slice(2, 10).toUpperCase();
+}
+
 // ─── Signal Generator ──────────────────────────────────────────────────────────
 
 async function buildSignalMessage(
@@ -314,15 +330,12 @@ async function buildSignalMessage(
 ): Promise<string> {
   const { timeframe, timezone, strategy } = settings;
   const isOtc = market !== "real";
-
-  const nowMs = Date.now() + timezone.offset * 3_600_000;
-  const now   = new Date(nowMs);
-
-  const dd   = pad2(now.getUTCDate());
-  const mm   = pad2(now.getUTCMonth() + 1);
-  const yyyy = now.getUTCFullYear();
+  const nowMs  = Date.now() + timezone.offset * 3_600_000;
+  const now    = new Date(nowMs);
+  const dd     = pad2(now.getUTCDate());
+  const mm     = pad2(now.getUTCMonth() + 1);
+  const yyyy   = now.getUTCFullYear();
   const tfLabel = timeframe === 1 ? "1 MINUTE" : `${timeframe} MINUTES`;
-
   const adapterKey = market === "real" ? null : market;
 
   const header = [
@@ -350,27 +363,19 @@ async function buildSignalMessage(
   const blocks: string[] = [];
 
   for (const asset of assets) {
-    // Try to get candles from broker adapter for quality analysis
     let dir: "CALL" | "PUT";
     if (adapterKey && adapters[adapterKey]?.isConnected()) {
       try {
         const candles = await adapters[adapterKey]!.getCandles(asset, timeframe, 10);
         const quality = analyseSignalQuality(candles);
-
-        // Skip weak/unconfirmed signals if strategy requires confirmation
         if (strategy.requireConfirm && !quality.confirmed) {
-          blocks.push(
-            `<b>▎${escapeHtml(formatAssetName(asset, market))} — ⏭ Skipped (low quality)</b>`
-          );
+          blocks.push(`<b>▎${escapeHtml(formatAssetName(asset, market))} — ⏭ Skipped (low quality)</b>`);
           continue;
         }
         if (strategy.filterLowVol && quality.strength === "weak") {
-          blocks.push(
-            `<b>▎${escapeHtml(formatAssetName(asset, market))} — ⏭ Skipped (low volatility)</b>`
-          );
+          blocks.push(`<b>▎${escapeHtml(formatAssetName(asset, market))} — ⏭ Skipped (low volatility)</b>`);
           continue;
         }
-
         dir = direction === "BOTH" ? quality.direction : direction;
       } catch {
         dir = direction === "BOTH" ? (Math.random() < 0.5 ? "CALL" : "PUT") : direction;
@@ -411,46 +416,119 @@ const PAYWALL_TEXT =
 
 const PAYWALL_KB = Markup.inlineKeyboard([
   [
-    Markup.button.url("💬 CHAT",          "https://t.me/oawhidshakib"),
+    Markup.button.url("💬 CHAT",          ADMIN_CHAT_URL),
     Markup.button.callback("💳 ACCESS BUY", "access_buy"),
     Markup.button.url("⭐ VIP AUTO JOIN",  "https://t.me/managementTG_bot"),
   ],
 ]);
 
-const PRICE_LIST_TEXT =
-  `💎 <b>Subscription Plans — Future Signal</b>\n` +
-  `<b>━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━</b>\n` +
-  `  <b>1 Day</b>          <code>$5</code>\n` +
-  `  <b>6 Days</b>        <code>$10</code>\n` +
-  `  <b>14 Days</b>      <code>$25</code>\n` +
-  `  <b>30 Days</b>      <code>$48</code>\n` +
-  `  <b>60 Days</b>      <code>$69</code>\n` +
-  `  <b>3 Months</b>    <code>$150</code>\n` +
-  `  <b>5 Months</b>    <code>$170</code>\n` +
-  `  <b>9 Months</b>    <code>$200</code>\n` +
-  `  <b>12 Months</b>  <code>$280</code>\n` +
-  `  <b>2 Years</b>      <code>$320</code>\n` +
-  `  <b>3 Years</b>      <code>$500</code>\n` +
-  `  <b>Lifetime</b>     <code>$919</code>\n` +
-  `<b>━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━</b>\n\n` +
-  `📩 Contact admin to purchase:`;
-
-const PRICE_LIST_KB = Markup.inlineKeyboard([
-  [
-    Markup.button.url("💬 CHAT",         "https://t.me/oawhidshakib"),
-    Markup.button.url("⭐ VIP AUTO JOIN","https://t.me/managementTG_bot"),
-  ],
-  [Markup.button.callback("🔙 Back", "paywall_back")],
+const EXPIRY_WARNING_KB = Markup.inlineKeyboard([
+  [Markup.button.callback("💳 Get Access Now", "access_buy")],
+  [Markup.button.url("💬 Chat with Admin",  ADMIN_CHAT_URL)],
+  [Markup.button.callback("🔙 Back",         "back_to_menu_reply")],
 ]);
+
+// ─── Package keyboards / text ─────────────────────────────────────────────────
+
+function buildPriceListText(): string {
+  return (
+    `┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓\n` +
+    `💎 <b>Subscription Plans — Future Signal</b>\n` +
+    `┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛\n\n` +
+    PACKAGES.map(p =>
+      `${p.badge}  <b>${p.label}</b>  ·  <code>$${p.price}</code>`
+    ).join("\n") +
+    `\n\n<i>👇 Tap a package to continue</i>`
+  );
+}
+
+function buildPriceListKeyboard(): ReturnType<typeof Markup.inlineKeyboard> {
+  const rows: ReturnType<typeof Markup.button.callback>[][] = [];
+  for (let i = 0; i < PACKAGES.length; i += 2) {
+    const pair = PACKAGES.slice(i, i + 2);
+    rows.push(pair.map(p =>
+      Markup.button.callback(`${p.badge} ${p.label} · $${p.price}`, `pkg_${p.id}`)
+    ));
+  }
+  rows.push([Markup.button.callback("🔙 Back", "paywall_back")]);
+  return Markup.inlineKeyboard(rows);
+}
+
+function buildPkgDetailText(pkg: Package): string {
+  return (
+    `┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓\n` +
+    `✅ <b>You selected:</b>\n` +
+    `┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛\n\n` +
+    `📦  ${pkg.badge} <b>ACCESS · ${escapeHtml(pkg.label)}</b>\n` +
+    `💰  <b>Amount:</b>  <code>$${pkg.price}</code>\n` +
+    `⏱  <b>Duration:</b>  <i>${escapeHtml(pkg.durationText)}</i>\n\n` +
+    `<i>Click below to proceed to payment.</i>`
+  );
+}
+
+function buildPkgDetailKeyboard(pkgId: string): ReturnType<typeof Markup.inlineKeyboard> {
+  return Markup.inlineKeyboard([
+    [Markup.button.callback("💳 Proceed to Payment", `proceed_${pkgId}`)],
+    [Markup.button.callback("🔙 Back to Packages",   "access_buy")],
+  ]);
+}
+
+function buildPaymentInstructionsText(pkg: Package): string {
+  return (
+    `┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓\n` +
+    `💳 <b>Payment Instructions</b>\n` +
+    `┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛\n\n` +
+    `📦 <b>Package:</b>  ${pkg.badge} ${escapeHtml(pkg.label)}\n` +
+    `💰 <b>Amount:</b>  <code>$${pkg.price}</code>\n\n` +
+    `💛 <b>Binance Pay</b> <i>(Business Official)</i>\n` +
+    `┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄\n` +
+    `🪪  <b>Pay ID:</b>\n<code>${BINANCE_PAY_ID}</code>\n\n` +
+    `🔷 <b>Crypto — USDT (TRC20 Network)</b>\n` +
+    `┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄\n` +
+    `🏷  <b>Wallet Address:</b>\n<code>${USDT_ADDRESS}</code>`
+  );
+}
+
+function buildPaymentInstructionsKeyboard(pkgId: string): ReturnType<typeof Markup.inlineKeyboard> {
+  return Markup.inlineKeyboard([
+    [Markup.button.callback("📸 Send Payment Screenshot", `send_screenshot_${pkgId}`)],
+    [Markup.button.callback("❌ Cancel",                  "access_buy")],
+  ]);
+}
+
+function buildApprovalWelcomeText(pkg: Package, firstName: string): string {
+  const endLabel = pkgEndLabel(pkg);
+  return (
+    `┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓\n` +
+    `🎉 <b>Payment Received! Congratulations!</b>\n` +
+    `┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛\n\n` +
+    `🟢 <b>Your account is now active.</b>\n\n` +
+    `👤 <b>Name:</b>  ${escapeHtml(firstName)}\n` +
+    `🔮 <b>Types:</b>  Future Signal\n` +
+    `⏳ <b>Duration:</b>  ${escapeHtml(pkg.durationText)}\n` +
+    `📅 <b>END:</b>  ${escapeHtml(endLabel)}\n\n` +
+    `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
+    `🌟 Join our exclusive community, share with your friends!\n` +
+    `👇 Click the link below:\n` +
+    `<a href="${COMMUNITY_URL}">T.me/traderguide.bot</a>\n` +
+    `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`
+  );
+}
+
+// ─── Market keyboard ──────────────────────────────────────────────────────────
 
 function buildMarketKeyboard(userId: number): ReturnType<typeof Markup.inlineKeyboard> {
   const rows: ReturnType<typeof Markup.button.callback>[][] = [
     [
-      Markup.button.callback("🌍 Real",       "market_real"),
-      Markup.button.callback("📈 Quotex",     "market_quotex"),
-      Markup.button.callback("💼 Pocket",     "market_po"),
-      Markup.button.callback("📊 IQ",         "market_iq"),
-      Markup.button.callback("🏦 Olymp",      "market_olymp"),
+      Markup.button.callback("🌍 Real Market",  "market_real"),
+      Markup.button.callback("📈 Quotex OTC",   "market_quotex"),
+    ],
+    [
+      Markup.button.callback("💼 Pocket OTC",   "market_po"),
+      Markup.button.callback("📊 IQ Option OTC","market_iq"),
+    ],
+    [
+      Markup.button.callback("🏦 Olymp OTC",    "market_olymp"),
     ],
     ...(isAdmin(userId) ? [[Markup.button.callback("👑 ASSESS USER", "assess_users")]] : []),
     [Markup.button.callback("🔙 Back", "back_to_menu")],
@@ -458,29 +536,36 @@ function buildMarketKeyboard(userId: number): ReturnType<typeof Markup.inlineKey
   return Markup.inlineKeyboard(rows);
 }
 
+// ─── Assess panel ─────────────────────────────────────────────────────────────
+
 function buildAssessText(): string {
   let text =
+    `┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓\n` +
     `👑 <b>ASSESS USER PANEL</b>\n` +
-    `<b>━━━━━━━━━━━━━━━━━━━━━━━━━━━━</b>\n\n` +
-    `🔒 <code>${ADMIN_ID_NUM}</code>  —  <b>Admin</b>  <i>(LOCKED — cannot remove)</i>\n\n`;
+    `┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛\n\n` +
+    `🔒 <code>${ADMIN_ID_NUM}</code>  —  <b>Admin</b>  <i>(LOCKED)</i>\n\n`;
 
   if (accessStore.size === 0) {
     text += `<i>No users granted access yet.</i>\n\n`;
   } else {
     for (const [id, e] of accessStore.entries()) {
       const badge = e.expiresAt === null
-        ? "♾️ Lifetime"
+        ? "♾️"
+        : Date.now() < e.expiresAt ? "✅" : "❌";
+      const expLabel = e.expiresAt === null
+        ? "Lifetime"
         : Date.now() < e.expiresAt
-          ? `⏳ Expires ${new Date(e.expiresAt).toUTCString()}`
-          : `❌ EXPIRED`;
-      text += `👤 <code>${id}</code>  —  ${badge}\n`;
+          ? `Exp ${new Date(e.expiresAt).toLocaleDateString()}`
+          : "EXPIRED";
+      const nameLabel = e.username ? `@${e.username}` : e.firstName ?? `ID:${id}`;
+      text += `${badge} <b>${escapeHtml(nameLabel)}</b>  <code>${id}</code>  <i>${expLabel}</i>\n`;
     }
     text += `\n`;
   }
 
   text +=
     `<b>To grant:</b>  <code>/grant &lt;userId&gt; &lt;days|lifetime&gt;</code>\n` +
-    `<b>To revoke:</b>  <code>/revoke &lt;userId&gt;</code>`;
+    `<b>Total active:</b>  ${[...accessStore.values()].filter(e => e.expiresAt === null || Date.now() < (e.expiresAt ?? Infinity)).length} users`;
   return text;
 }
 
@@ -488,16 +573,31 @@ function buildAssessKeyboard(): ReturnType<typeof Markup.inlineKeyboard> {
   const rows: ReturnType<typeof Markup.button.callback>[][] = [];
   for (const [id, e] of accessStore.entries()) {
     const badge = e.expiresAt === null ? "♾️" : Date.now() < e.expiresAt ? "✅" : "❌";
+    const nameLabel = e.username ? `@${e.username}` : e.firstName ?? `${id}`;
     rows.push([
-      Markup.button.callback(`${badge} ${id}`, "assess_noop"),
+      Markup.button.callback(`${badge} ${nameLabel}`, "assess_noop"),
       Markup.button.callback("🗑 Remove", `assess_remove_${id}`),
     ]);
   }
   rows.push([Markup.button.callback("➕ Add User", "assess_add_user")]);
-  rows.push([Markup.button.callback("🔄 Refresh", "assess_users")]);
+  rows.push([Markup.button.callback("🔄 Refresh",         "assess_users")]);
   rows.push([Markup.button.callback("🔙 Back to Markets", "back_to_market_from_assess")]);
   return Markup.inlineKeyboard(rows);
 }
+
+function buildAssessPackageKeyboard(): ReturnType<typeof Markup.inlineKeyboard> {
+  const rows: ReturnType<typeof Markup.button.callback>[][] = [];
+  for (let i = 0; i < PACKAGES.length; i += 2) {
+    const pair = PACKAGES.slice(i, i + 2);
+    rows.push(pair.map(p =>
+      Markup.button.callback(`${p.badge} ${p.label}`, `assess_pkg_${p.id}`)
+    ));
+  }
+  rows.push([Markup.button.callback("🔙 Cancel", "assess_users")]);
+  return Markup.inlineKeyboard(rows);
+}
+
+// ─── Other keyboards ──────────────────────────────────────────────────────────
 
 function assetKeyboard(
   assets: string[], selected: string[],
@@ -508,8 +608,8 @@ function assetKeyboard(
   const rows: ReturnType<typeof Markup.button.callback>[][] = [];
   for (let i = 0; i < btns.length; i += 3) rows.push(btns.slice(i, i + 3));
   rows.push([
-    Markup.button.callback("✅ Done",              "assets_done"),
-    Markup.button.callback("🔙 Back",              "back_to_market"),
+    Markup.button.callback("✅ Done",   "assets_done"),
+    Markup.button.callback("🔙 Back",   "back_to_market"),
   ]);
   rows.push([Markup.button.callback("⚙️ Change Settings", "settings_hub")]);
   rows.push([Markup.button.callback("🌍 Timezone",        "settings_tz_open")]);
@@ -598,19 +698,17 @@ function autoDeleteKeyboard(currentSec: number): ReturnType<typeof Markup.inline
 
 // ─── Bot ───────────────────────────────────────────────────────────────────────
 
-const MAX_RETRIES      = 5;
-const RETRY_DELAY_MS   = 3_000;
-let   botRestartCount  = 0;
+const MAX_RETRIES    = 5;
+const RETRY_DELAY_MS = 3_000;
+let   botRestartCount = 0;
 
 export async function startBot(): Promise<void> {
   if (!BOT_TOKEN) {
     logger.warn("TELEGRAM_BOT_TOKEN not set — bot will not start");
     return;
   }
-
   logger.info({ adminId: ADMIN_ID_NUM, rawEnv: ADMIN_CHAT_ID ? "[set]" : "[not set]" }, "Bot admin config");
   await initAdapters();
-
   await launchWithRetry();
 }
 
@@ -633,23 +731,51 @@ async function launchWithRetry(): Promise<void> {
         )
         .catch(() => {});
     }
+
+    // Start expiry watcher
+    startExpiryWatcher(bot);
   } catch (err) {
     botRestartCount++;
     logger.error({ err, attempt: botRestartCount }, "Bot launch failed");
-
     if (botRestartCount <= MAX_RETRIES) {
       const delay = RETRY_DELAY_MS * botRestartCount;
       logger.info({ delay, attempt: botRestartCount }, "Retrying bot launch…");
       await new Promise(r => setTimeout(r, delay));
       return launchWithRetry();
     }
-
     logger.error("Max retries reached. Bot will not restart automatically.");
   }
 
   process.once("SIGINT",  () => bot.stop("SIGINT"));
   process.once("SIGTERM", () => bot.stop("SIGTERM"));
 }
+
+function startExpiryWatcher(bot: Telegraf<MyContext>): void {
+  setInterval(() => {
+    const now = Date.now();
+    for (const [userId, entry] of accessStore.entries()) {
+      if (entry.expiresAt === null) continue;
+      const remaining = entry.expiresAt - now;
+      if (remaining > 0 && remaining <= 3_600_000 && !entry.warnedExpiry) {
+        entry.warnedExpiry = true;
+        bot.telegram
+          .sendMessage(
+            userId,
+            `┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓\n` +
+            `⚠️ <b>Subscription Expiring Soon!</b>\n` +
+            `┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛\n\n` +
+            `⏰ Your <b>Future Signal Generator</b> subscription\n` +
+            `expires in <b>less than 1 hour!</b>\n\n` +
+            `🔴 Get access now before it's too late! 🔴`,
+            { parse_mode: "HTML", ...EXPIRY_WARNING_KB },
+          )
+          .catch(() => {});
+      }
+    }
+  }, 5 * 60_000); // check every 5 minutes
+}
+
+// ─── Bot Builder ──────────────────────────────────────────────────────────────
 
 function buildBot(): Telegraf<MyContext> {
   const bot = new Telegraf<MyContext>(BOT_TOKEN!);
@@ -694,15 +820,15 @@ function buildBot(): Telegraf<MyContext> {
     for (const id of pendingDeleteIds) {
       await bot.telegram.deleteMessage(pendingDeleteChatId, id).catch(() => {});
     }
-    ctx.session.pendingDeleteIds = [];
+    ctx.session.pendingDeleteIds    = [];
     ctx.session.pendingDeleteChatId = undefined;
   }
 
   function assetText(ctx: MyContext): string {
-    const uid = ctx.from?.id ?? 0;
-    const sel = ctx.session.selectedAssets;
-    const s   = ctx.session.settings;
-    const tf  = s.timeframe === 1 ? "1Minutes" : `${s.timeframe}Minutes`;
+    const uid  = ctx.from?.id ?? 0;
+    const sel  = ctx.session.selectedAssets;
+    const s    = ctx.session.settings;
+    const tf   = s.timeframe === 1 ? "1Minutes" : `${s.timeframe}Minutes`;
     const accessLabel = getUserAccessLabel(uid);
     return (
       `┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓\n` +
@@ -754,15 +880,23 @@ function buildBot(): Telegraf<MyContext> {
 
   bot.command("myid", async ctx => {
     const uid = ctx.from?.id ?? 0;
-    const adminStatus = isAdmin(uid) ? "✅ You are the admin" : "❌ Not admin";
     await ctx.reply(
-      `🆔 Your Telegram ID: <code>${uid}</code>\n${adminStatus}\n\nBot admin ID: <code>${ADMIN_ID_NUM ?? "not set"}</code>`,
+      `🆔 Your Telegram ID: <code>${uid}</code>\n` +
+      `${isAdmin(uid) ? "✅ You are the admin" : "❌ Not admin"}\n\n` +
+      `Bot admin ID: <code>${ADMIN_ID_NUM ?? "not set"}</code>`,
       { parse_mode: "HTML" },
     );
   });
 
   bot.start(async ctx => {
     ctx.session.state = "idle";
+    // Store user info on first contact
+    const uid = ctx.from?.id ?? 0;
+    const existing = accessStore.get(uid);
+    if (existing) {
+      existing.username  = ctx.from?.username;
+      existing.firstName = ctx.from?.first_name;
+    }
     await sendMainMenu(ctx);
   });
 
@@ -843,10 +977,63 @@ function buildBot(): Telegraf<MyContext> {
     await ctx.editMessageText(MAIN_MENU_TEXT, { parse_mode: "HTML", ...MAIN_MENU_KB });
   });
 
-  bot.action("access_buy",   async ctx => { await ctx.answerCbQuery(); await ctx.editMessageText(PRICE_LIST_TEXT, { parse_mode: "HTML", ...PRICE_LIST_KB }); });
-  bot.action("paywall_back", async ctx => { await ctx.answerCbQuery(); await ctx.editMessageText(PAYWALL_TEXT,    { parse_mode: "HTML", ...PAYWALL_KB    }); });
+  bot.action("back_to_menu_reply", async ctx => {
+    await ctx.answerCbQuery();
+    ctx.session.state = "idle";
+    await ctx.reply(MAIN_MENU_TEXT, { parse_mode: "HTML", ...MAIN_MENU_KB });
+  });
 
-  // Market selection with weekend guard
+  bot.action("access_buy", async ctx => {
+    await ctx.answerCbQuery();
+    await ctx.editMessageText(buildPriceListText(), { parse_mode: "HTML", ...buildPriceListKeyboard() });
+  });
+
+  bot.action("paywall_back", async ctx => {
+    await ctx.answerCbQuery();
+    await ctx.editMessageText(PAYWALL_TEXT, { parse_mode: "HTML", ...PAYWALL_KB });
+  });
+
+  // ── Package selection (user purchase flow) ────────────────────────────────
+
+  bot.action(/^pkg_(.+)$/, async ctx => {
+    await ctx.answerCbQuery();
+    const pkg = getPkg(ctx.match[1]);
+    if (!pkg) return;
+    ctx.session.pendingPackageId = pkg.id;
+    await ctx.editMessageText(buildPkgDetailText(pkg), { parse_mode: "HTML", ...buildPkgDetailKeyboard(pkg.id) });
+  });
+
+  bot.action(/^proceed_(.+)$/, async ctx => {
+    await ctx.answerCbQuery();
+    const pkg = getPkg(ctx.match[1]);
+    if (!pkg) return;
+    ctx.session.pendingPackageId = pkg.id;
+    await ctx.editMessageText(buildPaymentInstructionsText(pkg), { parse_mode: "HTML", ...buildPaymentInstructionsKeyboard(pkg.id) });
+  });
+
+  bot.action(/^send_screenshot_(.+)$/, async ctx => {
+    await ctx.answerCbQuery();
+    const pkg = getPkg(ctx.match[1]);
+    if (!pkg) return;
+    ctx.session.pendingPackageId = pkg.id;
+    ctx.session.state = "await_payment_screenshot";
+    await ctx.editMessageText(
+      `┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓\n` +
+      `📸 <b>Send Payment Screenshot</b>\n` +
+      `┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛\n\n` +
+      `📦 <b>Package:</b>  ${pkg.badge} ${escapeHtml(pkg.label)}\n\n` +
+      `Take a screenshot of your <b>completed payment</b>\n` +
+      `and send it here as a <b>photo</b>.\n\n` +
+      `<i>⏳ Waiting for your screenshot…</i>`,
+      {
+        parse_mode: "HTML",
+        ...Markup.inlineKeyboard([[Markup.button.callback("❌ Cancel", "access_buy")]]),
+      },
+    );
+  });
+
+  // ── Market selection ──────────────────────────────────────────────────────
+
   const markets: MarketType[] = ["real", "quotex", "po", "iq", "olymp"];
   for (const m of markets) {
     bot.action(`market_${m}`, async ctx => {
@@ -878,6 +1065,7 @@ function buildBot(): Telegraf<MyContext> {
   bot.action("assess_users", async ctx => {
     await ctx.answerCbQuery();
     if (!isAdmin(ctx.from?.id ?? 0)) return;
+    ctx.session.state = "idle";
     await ctx.editMessageText(buildAssessText(), { parse_mode: "HTML", ...buildAssessKeyboard() });
   });
 
@@ -886,13 +1074,13 @@ function buildBot(): Telegraf<MyContext> {
   });
 
   bot.action(/^assess_remove_(\d+)$/, async ctx => {
-    await ctx.answerCbQuery();
     if (!isAdmin(ctx.from?.id ?? 0)) return;
     const targetId = parseInt(ctx.match[1], 10);
     if (ADMIN_ID_NUM !== null && targetId === ADMIN_ID_NUM) {
       await ctx.answerCbQuery("🔒 Cannot remove Admin!", { show_alert: true });
       return;
     }
+    await ctx.answerCbQuery(`🗑 Removed ${targetId}`);
     accessStore.delete(targetId);
     await ctx.editMessageText(buildAssessText(), { parse_mode: "HTML", ...buildAssessKeyboard() });
   });
@@ -907,15 +1095,14 @@ function buildBot(): Telegraf<MyContext> {
   bot.action("assess_add_user", async ctx => {
     await ctx.answerCbQuery();
     if (!isAdmin(ctx.from?.id ?? 0)) return;
-    ctx.session.state = "await_assess_add_user";
+    ctx.session.state = "await_assess_username";
     await ctx.editMessageText(
-      `➕ <b>Add User Access</b>\n\n` +
-      `Send a message in this format:\n` +
-      `<code>&lt;userId&gt; &lt;days|lifetime&gt;</code>\n\n` +
-      `Examples:\n` +
-      `• <code>123456789 30</code>  — 30-day access\n` +
-      `• <code>123456789 lifetime</code>  — lifetime access\n\n` +
-      `<i>Tip: User can find their ID with /myid</i>`,
+      `┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓\n` +
+      `➕ <b>Add User — Step 1 of 2</b>\n` +
+      `┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛\n\n` +
+      `Send the <b>Telegram User ID</b> of the user\n` +
+      `you want to grant access to.\n\n` +
+      `<i>💡 The user can find their ID by sending\n/myid to this bot.</i>`,
       {
         parse_mode: "HTML",
         ...Markup.inlineKeyboard([[Markup.button.callback("🔙 Cancel", "assess_users")]]),
@@ -923,7 +1110,139 @@ function buildBot(): Telegraf<MyContext> {
     );
   });
 
-  // Asset toggling
+  // Admin selects a package in the assess flow
+  bot.action(/^assess_pkg_(.+)$/, async ctx => {
+    await ctx.answerCbQuery();
+    if (!isAdmin(ctx.from?.id ?? 0)) return;
+    const pkg = getPkg(ctx.match[1]);
+    const targetId = ctx.session.assessTargetId;
+    if (!pkg || !targetId) {
+      await ctx.answerCbQuery("⚠️ Session lost. Please try again.", { show_alert: true });
+      return;
+    }
+
+    const firstName = ctx.session.assessTargetUsername ?? String(targetId);
+    const endLabel  = pkgEndLabel(pkg);
+
+    // Grant access
+    accessStore.set(targetId, {
+      expiresAt: pkg.days === null ? null : Date.now() + pkg.days * 86_400_000,
+      username:  ctx.session.assessTargetUsername,
+      firstName,
+      packageId: pkg.id,
+    });
+    ctx.session.state = "idle";
+    ctx.session.assessTargetId = undefined;
+    ctx.session.assessTargetUsername = undefined;
+
+    // Notify user
+    bot.telegram
+      .sendMessage(targetId, buildApprovalWelcomeText(pkg, firstName), { parse_mode: "HTML" })
+      .catch(() => {});
+
+    // Show updated assess panel to admin
+    await ctx.editMessageText(
+      `✅ <b>Access granted!</b>\n\n` +
+      `👤 User: <code>${targetId}</code>\n` +
+      `📦 Package: ${pkg.badge} ${escapeHtml(pkg.label)}\n` +
+      `📅 Until: ${escapeHtml(endLabel)}\n\n` +
+      `<i>User has been notified.</i>`,
+      {
+        parse_mode: "HTML",
+        ...Markup.inlineKeyboard([
+          [Markup.button.callback("👑 Back to Assess Panel", "assess_users")],
+        ]),
+      },
+    );
+  });
+
+  // ── Admin approve / reject payments ──────────────────────────────────────
+
+  bot.action(/^approve_pay_(.+)$/, async ctx => {
+    await ctx.answerCbQuery();
+    if (!isAdmin(ctx.from?.id ?? 0)) return;
+    const payId  = ctx.match[1];
+    const payment = pendingPayments.get(payId);
+    if (!payment) {
+      await ctx.answerCbQuery("⚠️ Payment not found (may be expired).", { show_alert: true });
+      return;
+    }
+    const pkg = getPkg(payment.packageId);
+    if (!pkg) return;
+
+    pendingPayments.delete(payId);
+
+    // Grant access
+    accessStore.set(payment.userId, {
+      expiresAt: pkg.days === null ? null : Date.now() + pkg.days * 86_400_000,
+      username:  payment.username,
+      firstName: payment.firstName,
+      packageId: pkg.id,
+    });
+
+    // Notify user
+    bot.telegram
+      .sendMessage(
+        payment.userId,
+        buildApprovalWelcomeText(pkg, payment.firstName),
+        { parse_mode: "HTML" },
+      )
+      .catch(() => {});
+
+    // Update admin message
+    await ctx.editMessageText(
+      `✅ <b>APPROVED</b>\n\n` +
+      `👤 User: <code>${payment.userId}</code>\n` +
+      `📦 Package: ${pkg.badge} ${escapeHtml(pkg.label)}\n` +
+      `✅ Access granted &amp; user notified.`,
+      { parse_mode: "HTML" },
+    );
+  });
+
+  bot.action(/^reject_pay_(.+)$/, async ctx => {
+    await ctx.answerCbQuery();
+    if (!isAdmin(ctx.from?.id ?? 0)) return;
+    const payId   = ctx.match[1];
+    const payment = pendingPayments.get(payId);
+    if (!payment) {
+      await ctx.answerCbQuery("⚠️ Payment not found.", { show_alert: true });
+      return;
+    }
+
+    pendingPayments.delete(payId);
+
+    // Notify user of rejection
+    bot.telegram
+      .sendMessage(
+        payment.userId,
+        `┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓\n` +
+        `❌ <b>Payment Not Confirmed</b>\n` +
+        `┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛\n\n` +
+        `We could not confirm your payment.\n\n` +
+        `If you think this is a mistake,\n` +
+        `please contact admin directly:`,
+        {
+          parse_mode: "HTML",
+          ...Markup.inlineKeyboard([
+            [Markup.button.url("💬 Contact Admin", ADMIN_CHAT_URL)],
+            [Markup.button.callback("🔄 Try Again", "access_buy")],
+          ]),
+        },
+      )
+      .catch(() => {});
+
+    // Update admin message
+    await ctx.editMessageText(
+      `❌ <b>REJECTED</b>\n\n` +
+      `👤 User: <code>${payment.userId}</code>\n` +
+      `📦 Package: ${payment.packageId}\n` +
+      `User notified to contact admin.`,
+      { parse_mode: "HTML" },
+    );
+  });
+
+  // ── Asset toggling ────────────────────────────────────────────────────────
+
   bot.action(/^asset_(.+)$/, async ctx => {
     if (ctx.session.state !== "await_assets") return;
     const asset = ctx.match[1];
@@ -1004,10 +1323,9 @@ function buildBot(): Telegraf<MyContext> {
         rem = rem.slice(cut > 0 ? cut : MAX_LEN).trimStart();
       }
 
-      const chatId = ctx.chat!.id;
+      const chatId      = ctx.chat!.id;
       const deleteMsgIds: number[] = [];
-
-      const firstMsgId = (ctx.callbackQuery as { message?: { message_id?: number } })?.message?.message_id;
+      const firstMsgId  = (ctx.callbackQuery as { message?: { message_id?: number } })?.message?.message_id;
       if (firstMsgId) deleteMsgIds.push(firstMsgId);
       await ctx.editMessageText(chunks[0]!, { parse_mode: "HTML" });
 
@@ -1016,7 +1334,7 @@ function buildBot(): Telegraf<MyContext> {
         deleteMsgIds.push(m.message_id);
       }
 
-      const delLabel = adLabel(settings.autoDeleteSec);
+      const delLabel   = adLabel(settings.autoDeleteSec);
       const summaryMsg = await ctx.reply(
         `✅ <b>${count} signals × ${selectedAssets.length} pair(s)</b> | 🎯 ${escapeHtml(settings.strategy.name)}\n` +
         `⏱ <i>Auto-deleting in ${delLabel}…</i>`,
@@ -1046,7 +1364,7 @@ function buildBot(): Telegraf<MyContext> {
     });
   }
 
-  // Home — deletes signal messages first, then shows main menu
+  // Home
   bot.action("go_home", async ctx => {
     await ctx.answerCbQuery();
     ctx.session.state = "idle";
@@ -1056,17 +1374,8 @@ function buildBot(): Telegraf<MyContext> {
 
   // ── Settings Hub ───────────────────────────────────────────────────────────
 
-  bot.action("settings_hub", async ctx => {
-    await ctx.answerCbQuery();
-    await showSettingsHub(ctx, true);
-  });
-
-  bot.action("back_to_settings_hub", async ctx => {
-    await ctx.answerCbQuery();
-    await showSettingsHub(ctx, true);
-  });
-
-  // ── Timeframe ──────────────────────────────────────────────────────────────
+  bot.action("settings_hub",          async ctx => { await ctx.answerCbQuery(); await showSettingsHub(ctx, true); });
+  bot.action("back_to_settings_hub",  async ctx => { await ctx.answerCbQuery(); await showSettingsHub(ctx, true); });
 
   bot.action("settings_open", async ctx => {
     await ctx.answerCbQuery();
@@ -1088,8 +1397,6 @@ function buildBot(): Telegraf<MyContext> {
     });
   }
 
-  // ── Timezone ───────────────────────────────────────────────────────────────
-
   bot.action("settings_tz_open", async ctx => {
     await ctx.answerCbQuery();
     const cur = ctx.session.settings.timezone;
@@ -1107,8 +1414,6 @@ function buildBot(): Telegraf<MyContext> {
     await showSettingsHub(ctx, true);
   });
 
-  // ── Strategy ───────────────────────────────────────────────────────────────
-
   bot.action("settings_strategy_open", async ctx => {
     await ctx.answerCbQuery();
     const cur = ctx.session.settings.strategy;
@@ -1125,8 +1430,6 @@ function buildBot(): Telegraf<MyContext> {
     await ctx.answerCbQuery(`✓ ${s.name} selected`);
     await showSettingsHub(ctx, true);
   });
-
-  // ── Auto-Delete ────────────────────────────────────────────────────────────
 
   bot.action("settings_delete_open", async ctx => {
     await ctx.answerCbQuery();
@@ -1146,54 +1449,135 @@ function buildBot(): Telegraf<MyContext> {
     await showSettingsHub(ctx, true);
   });
 
-  // ── Text message handler (add user flow) ───────────────────────────────────
+  // ── Message handler (text + photo) ─────────────────────────────────────────
 
   bot.on("message", async ctx => {
-    if (ctx.session.state !== "await_assess_add_user") return;
-    if (!isAdmin(ctx.from?.id ?? 0)) return;
+    const uid   = ctx.from?.id ?? 0;
+    const state = ctx.session.state;
 
-    const text = ("text" in ctx.message ? ctx.message.text : "").trim();
-    const parts = text.split(/\s+/);
-    const rawId = parts[0] ?? "";
-    const param = parts[1] ?? "";
-    const targetId = parseInt(rawId, 10);
+    // ── Admin: waiting for user ID to grant access ───────────────────────────
+    if (state === "await_assess_username" && isAdmin(uid)) {
+      const text = ("text" in ctx.message ? ctx.message.text : "").trim();
+      const targetId = parseInt(text, 10);
 
-    if (!targetId || !param) {
-      await ctx.reply(
-        `⚠️ Invalid format. Use:\n<code>&lt;userId&gt; &lt;days|lifetime&gt;</code>`,
-        { parse_mode: "HTML" },
-      );
-      return;
-    }
-
-    if (ADMIN_ID_NUM !== null && targetId === ADMIN_ID_NUM) {
-      await ctx.reply(`🔒 <b>Admin is already locked with permanent access.</b>`, { parse_mode: "HTML" });
-      return;
-    }
-
-    ctx.session.state = "idle";
-
-    if (param.toLowerCase() === "lifetime") {
-      accessStore.set(targetId, { expiresAt: null });
-      await ctx.reply(
-        `✅ <b>Lifetime access</b> granted to <code>${targetId}</code>.\n\n` +
-        `Use 👑 ASSESS USER to manage all users.`,
-        { parse_mode: "HTML", ...Markup.inlineKeyboard([[Markup.button.callback("👑 View Assess Panel", "assess_users")]]) },
-      );
-    } else {
-      const days = parseInt(param, 10);
-      if (!days || days <= 0) {
-        await ctx.reply("⚠️ Days must be a positive number.");
+      if (!targetId || isNaN(targetId)) {
+        await ctx.reply(
+          `⚠️ <b>Invalid input.</b>\n\nPlease send a <b>numeric Telegram User ID</b>.\n<i>Example: <code>123456789</code></i>`,
+          { parse_mode: "HTML" },
+        );
         return;
       }
-      const expiresAt = Date.now() + days * 86_400_000;
-      accessStore.set(targetId, { expiresAt });
+
+      ctx.session.assessTargetId       = targetId;
+      ctx.session.assessTargetUsername = undefined;
+      ctx.session.state = "idle";
+
       await ctx.reply(
-        `✅ <b>${days}-day access</b> granted to <code>${targetId}</code>.\n` +
-        `Expires: <code>${new Date(expiresAt).toUTCString()}</code>\n\n` +
-        `Use 👑 ASSESS USER to manage all users.`,
-        { parse_mode: "HTML", ...Markup.inlineKeyboard([[Markup.button.callback("👑 View Assess Panel", "assess_users")]]) },
+        `┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓\n` +
+        `📦 <b>Select Package — Step 2 of 2</b>\n` +
+        `┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛\n\n` +
+        `👤 <b>User ID:</b>  <code>${targetId}</code>\n\n` +
+        `Choose the access package for this user:`,
+        { parse_mode: "HTML", ...buildAssessPackageKeyboard() },
       );
+      return;
+    }
+
+    // ── User: waiting to send payment screenshot ───────────────────────────
+    if (state === "await_payment_screenshot") {
+      const pkgId = ctx.session.pendingPackageId;
+      const pkg   = pkgId ? getPkg(pkgId) : undefined;
+
+      if (!pkg) {
+        await ctx.reply("⚠️ Session expired. Please start again.", { parse_mode: "HTML" });
+        ctx.session.state = "idle";
+        return;
+      }
+
+      const hasPhoto = "photo" in ctx.message && ctx.message.photo && ctx.message.photo.length > 0;
+      const hasDoc   = "document" in ctx.message && ctx.message.document;
+
+      if (!hasPhoto && !hasDoc) {
+        await ctx.reply(
+          `📸 <b>Please send a photo</b> of your payment screenshot.\n<i>Not a file — send it as a photo.</i>`,
+          { parse_mode: "HTML" },
+        );
+        return;
+      }
+
+      ctx.session.state = "idle";
+      const payId: string = genPaymentId();
+      const firstName = ctx.from?.first_name ?? "User";
+      const username  = ctx.from?.username;
+
+      pendingPayments.set(payId, {
+        id: payId,
+        userId: uid,
+        username,
+        firstName,
+        packageId: pkg.id,
+        chatId: ctx.chat!.id,
+      });
+
+      // Confirm to user
+      await ctx.reply(
+        `┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓\n` +
+        `⏳ <b>Payment Under Review</b>\n` +
+        `┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛\n\n` +
+        `✅ Your screenshot has been sent to admin.\n\n` +
+        `📦 <b>Package:</b>  ${pkg.badge} ${escapeHtml(pkg.label)}\n` +
+        `⏱ You will be notified once approved.\n\n` +
+        `<i>Usually within a few hours.</i>`,
+        { parse_mode: "HTML" },
+      );
+
+      // Forward to admin with approve/reject
+      if (ADMIN_CHAT_ID && ADMIN_ID_NUM) {
+        const caption =
+          `┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓\n` +
+          `💳 <b>New Payment Screenshot</b>\n` +
+          `┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛\n\n` +
+          `👤 <b>User:</b>  ${escapeHtml(firstName)}${username ? ` (@${escapeHtml(username)})` : ""}\n` +
+          `🆔 <b>ID:</b>  <code>${uid}</code>\n` +
+          `📦 <b>Package:</b>  ${pkg.badge} ${escapeHtml(pkg.label)}\n` +
+          `💰 <b>Amount:</b>  <code>$${pkg.price}</code>\n` +
+          `⏱ <b>Duration:</b>  ${escapeHtml(pkg.durationText)}\n` +
+          `🔑 <b>Pay ID:</b>  <code>${payId}</code>`;
+
+        const approveKb = Markup.inlineKeyboard([
+          [
+            Markup.button.callback("✅ Approve",  `approve_pay_${payId}`),
+            Markup.button.callback("❌ Reject",   `reject_pay_${payId}`),
+          ],
+        ]);
+
+        try {
+          if (hasPhoto) {
+            const photos = (ctx.message as { photo: Array<{ file_id: string }> }).photo;
+            const fileId = photos[photos.length - 1]!.file_id;
+            await bot.telegram.sendPhoto(ADMIN_ID_NUM, fileId, {
+              caption,
+              parse_mode: "HTML",
+              ...approveKb,
+            });
+          } else if (hasDoc) {
+            const doc = (ctx.message as { document: { file_id: string } }).document;
+            await bot.telegram.sendDocument(ADMIN_ID_NUM, doc.file_id, {
+              caption,
+              parse_mode: "HTML",
+              ...approveKb,
+            });
+          }
+        } catch {
+          // fallback: send text only
+          await bot.telegram.sendMessage(
+            ADMIN_ID_NUM,
+            caption + `\n\n⚠️ <i>Could not forward screenshot.</i>`,
+            { parse_mode: "HTML", ...approveKb },
+          );
+        }
+      }
+      return;
     }
   });
 
