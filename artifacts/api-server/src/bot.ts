@@ -188,7 +188,7 @@ const AUTO_DELETE_OPTIONS: AutoDeleteOption[] = [
   { label: "6 Hr",  seconds: 21600 },
 ];
 
-const DEFAULT_AUTO_DELETE = AUTO_DELETE_OPTIONS[0]!;
+const DEFAULT_AUTO_DELETE = AUTO_DELETE_OPTIONS[6]!; // 6 Hr default
 
 // ─── Constants ─────────────────────────────────────────────────────────────────
 
@@ -285,8 +285,21 @@ function isWeekend(tz: TZ): boolean {
 }
 
 function adLabel(sec: number): string {
+  if (sec === 21600) return "default (6hr)";
   const opt = AUTO_DELETE_OPTIONS.find(o => o.seconds === sec);
   return opt ? opt.label : `${sec}s`;
+}
+
+function getUserAccessLabel(userId: number): string {
+  if (isAdmin(userId)) return "Admin 👑";
+  const e = accessStore.get(userId);
+  if (!e) return "No Access ❌";
+  if (e.expiresAt === null) return "Lifetime ♾️";
+  const ms = e.expiresAt - Date.now();
+  if (ms <= 0) return "Expired ❌";
+  const days = Math.floor(ms / 86_400_000);
+  const hrs  = Math.floor((ms % 86_400_000) / 3_600_000);
+  return days > 0 ? `${days}d ${hrs}h remaining ⏳` : `${hrs}h remaining ⏳`;
 }
 
 // ─── Signal Generator ──────────────────────────────────────────────────────────
@@ -429,14 +442,62 @@ const PRICE_LIST_KB = Markup.inlineKeyboard([
   [Markup.button.callback("🔙 Back", "paywall_back")],
 ]);
 
-const marketKeyboard = Markup.inlineKeyboard([
-  [Markup.button.callback("🌍 Real Market",       "market_real")],
-  [Markup.button.callback("📈 Quotex OTC",        "market_quotex")],
-  [Markup.button.callback("💼 Pocket Option OTC", "market_po")],
-  [Markup.button.callback("📊 IQ Option OTC",     "market_iq")],
-  [Markup.button.callback("🏦 Olymp Trade OTC",   "market_olymp")],
-  [Markup.button.callback("🔙 Back",              "back_to_menu")],
-]);
+function buildMarketKeyboard(userId: number): ReturnType<typeof Markup.inlineKeyboard> {
+  const rows: ReturnType<typeof Markup.button.callback>[][] = [
+    [
+      Markup.button.callback("🌍 Real",        "market_real"),
+      Markup.button.callback("📈 Quotex OTC",  "market_quotex"),
+    ],
+    [
+      Markup.button.callback("💼 Pocket OTC",  "market_po"),
+      Markup.button.callback("📊 IQ Option",   "market_iq"),
+      Markup.button.callback("🏦 Olymp OTC",   "market_olymp"),
+    ],
+    ...(isAdmin(userId) ? [[Markup.button.callback("👑 ASSESS USER", "assess_users")]] : []),
+    [Markup.button.callback("🔙 Back", "back_to_menu")],
+  ];
+  return Markup.inlineKeyboard(rows);
+}
+
+function buildAssessText(): string {
+  let text =
+    `👑 <b>ASSESS USER PANEL</b>\n` +
+    `<b>━━━━━━━━━━━━━━━━━━━━━━━━━━━━</b>\n\n` +
+    `🔒 <code>${ADMIN_ID_NUM}</code>  —  <b>Admin</b>  <i>(LOCKED — cannot remove)</i>\n\n`;
+
+  if (accessStore.size === 0) {
+    text += `<i>No users granted access yet.</i>\n\n`;
+  } else {
+    for (const [id, e] of accessStore.entries()) {
+      const badge = e.expiresAt === null
+        ? "♾️ Lifetime"
+        : Date.now() < e.expiresAt
+          ? `⏳ Expires ${new Date(e.expiresAt).toUTCString()}`
+          : `❌ EXPIRED`;
+      text += `👤 <code>${id}</code>  —  ${badge}\n`;
+    }
+    text += `\n`;
+  }
+
+  text +=
+    `<b>To grant:</b>  <code>/grant &lt;userId&gt; &lt;days|lifetime&gt;</code>\n` +
+    `<b>To revoke:</b>  <code>/revoke &lt;userId&gt;</code>`;
+  return text;
+}
+
+function buildAssessKeyboard(): ReturnType<typeof Markup.inlineKeyboard> {
+  const rows: ReturnType<typeof Markup.button.callback>[][] = [];
+  for (const [id, e] of accessStore.entries()) {
+    const badge = e.expiresAt === null ? "♾️" : Date.now() < e.expiresAt ? "✅" : "❌";
+    rows.push([
+      Markup.button.callback(`${badge} ${id}`, "assess_noop"),
+      Markup.button.callback("🗑 Remove", `assess_remove_${id}`),
+    ]);
+  }
+  rows.push([Markup.button.callback("🔄 Refresh", "assess_users")]);
+  rows.push([Markup.button.callback("🔙 Back to Markets", "back_to_market_from_assess")]);
+  return Markup.inlineKeyboard(rows);
+}
 
 function assetKeyboard(
   assets: string[], selected: string[],
@@ -638,13 +699,21 @@ function buildBot(): Telegraf<MyContext> {
   }
 
   function assetText(ctx: MyContext): string {
+    const uid = ctx.from?.id ?? 0;
     const sel = ctx.session.selectedAssets;
     const s   = ctx.session.settings;
+    const tf  = s.timeframe === 1 ? "1 Minutes" : `${s.timeframe} Minutes`;
+    const accessLabel = getUserAccessLabel(uid);
     return (
-      `📌 <b>Select assets</b> (min ${MIN_ASSETS}, max ${MAX_ASSETS})\n` +
-      `⚙️ TF: <b>${s.timeframe}Min</b>  |  🌍 TZ: <b>${escapeHtml(tzDisplay(s.timezone))}</b>\n` +
-      `🎯 Strategy: <b>${escapeHtml(s.strategy.name)}</b>  |  ⏰ Delete: <b>${adLabel(s.autoDeleteSec)}</b>\n\n` +
-      `<i>Selected: ${sel.length > 0 ? escapeHtml(sel.join(", ")) : "none"}</i>`
+      `━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
+      `🎯 <b>Strategy Active</b>  :  <b>${escapeHtml(s.strategy.name)}</b>\n` +
+      `⚙️ <b>TIMEFRAME</b>  :  <b>${tf}</b>\n` +
+      `🌍 <b>TIMEZONE</b>  :  <b>${escapeHtml(tzDisplay(s.timezone))}</b>\n` +
+      `👤 <b>Access</b>  :  <b>${escapeHtml(accessLabel)}</b>\n` +
+      `⏰ <b>Auto Delete</b>  :  <b>${adLabel(s.autoDeleteSec)}</b>\n` +
+      `━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n` +
+      `📌 <b>Select assets</b>  (min ${MIN_ASSETS}, max ${MAX_ASSETS})\n` +
+      `<b>Selected</b> : <i>${sel.length > 0 ? escapeHtml(sel.join(", ")) : "none"}</i>`
     );
   }
 
@@ -708,7 +777,7 @@ function buildBot(): Telegraf<MyContext> {
     const uid = ctx.from?.id ?? 0;
     if (!hasAccess(uid)) { await showPaywall(ctx, false); return; }
     ctx.session.state = "await_market";
-    await ctx.reply("📊 <b>Select Market Type:</b>", { parse_mode: "HTML", ...marketKeyboard });
+    await ctx.reply("📊 <b>Select Market Type:</b>", { parse_mode: "HTML", ...buildMarketKeyboard(uid) });
   });
 
   // ── Admin commands ─────────────────────────────────────────────────────────
@@ -764,7 +833,7 @@ function buildBot(): Telegraf<MyContext> {
     const uid = ctx.from?.id ?? 0;
     if (!hasAccess(uid)) { await showPaywall(ctx, true); return; }
     ctx.session.state = "await_market";
-    await ctx.editMessageText("📊 <b>Select Market Type:</b>", { parse_mode: "HTML", ...marketKeyboard });
+    await ctx.editMessageText("📊 <b>Select Market Type:</b>", { parse_mode: "HTML", ...buildMarketKeyboard(uid) });
   });
 
   bot.action("back_to_menu", async ctx => {
