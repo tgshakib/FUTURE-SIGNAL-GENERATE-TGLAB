@@ -404,7 +404,7 @@ const PRICE_LIST_TEXT =
   `<b>━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━</b>\n` +
   `  <b>1 Day</b>          <code>$5</code>\n` +
   `  <b>6 Days</b>        <code>$10</code>\n` +
-  `  <b>14 Days</b>      <code>$20</code>\n` +
+  `  <b>14 Days</b>      <code>$25</code>\n` +
   `  <b>30 Days</b>      <code>$48</code>\n` +
   `  <b>60 Days</b>      <code>$69</code>\n` +
   `  <b>3 Months</b>    <code>$150</code>\n` +
