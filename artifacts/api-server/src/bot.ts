@@ -534,11 +534,15 @@ async function buildHourBlockMessage(
   const mm     = pad2(now.getUTCMonth() + 1);
   const yyyy   = now.getUTCFullYear();
 
+  // Window: random 4–6 hours
+  const windowHours = 4 + Math.floor(Math.random() * 3); // 4, 5, or 6
+  const WINDOW_MS   = windowHours * 60 * 60_000;
+
   const header = [
     `<b>━━━━━━━━━・━━━━━━━━━</b>`,
     `<b>        𝗗𝗮𝘁𝗲: ${dd}/${mm}/${yyyy}</b>`,
     `<b>  𝗧𝗶𝗺𝗲 𝗭𝗼𝗻𝗲: ${escapeHtml(tzDisplay(timezone))}</b>`,
-    `<b>      𝗠𝗼𝗱𝗲: ⏰ 1 HOUR BLOCK</b>`,
+    `<b>      𝗠𝗼𝗱𝗲: ⏰ ${windowHours} HOUR BLOCK</b>`,
     `<b>    𝗠𝗮𝗿𝗸𝗲𝘁: ${escapeHtml(marketLabel(market))}</b>`,
     isMix
       ? `<b>  𝗗𝗶𝗿𝗲𝗰𝘁𝗶𝗼𝗻: MIX (CALL / PUT)</b>`
@@ -549,7 +553,6 @@ async function buildHourBlockMessage(
     ``,
   ].join("\n");
 
-  const WINDOW_MS  = 60 * 60_000; // 1 hour
   const blocks: string[] = [];
 
   for (const asset of assets) {
@@ -584,10 +587,11 @@ async function buildHourBlockMessage(
     // Major pairs get stronger directional confidence (fewer flips in MIX)
     const biasWeight = isMajorPair(asset) ? 0.72 : 0.62;
 
-    // Random count: 15–30 signals per asset per hour
-    const count = 15 + Math.floor(Math.random() * 16);
+    // 15–30 signals per hour × window hours
+    const countPerHour = 15 + Math.floor(Math.random() * 16);
+    const count = Math.round(countPerHour * windowHours);
 
-    // Scatter random timestamps across the 60-minute window, then sort
+    // Scatter random timestamps across the full window, then sort
     const rawOffsets: number[] = [];
     for (let i = 0; i < count; i++) {
       rawOffsets.push(Math.floor(Math.random() * WINDOW_MS));
@@ -1637,7 +1641,7 @@ function buildBot(): Telegraf<MyContext> {
 
     const delLabel   = adLabel(settings.autoDeleteSec);
     const summaryMsg = await ctx.reply(
-      `✅ <b>⏰ 1 Hr BLOCK</b> — ${selectedAssets.length} pair(s) | 15–30 signals/pair\n` +
+      `✅ <b>⏰ 1 Hr BLOCK</b> — ${selectedAssets.length} pair(s) | 4–6 hr window\n` +
       `⏱ <i>Auto-deleting in ${delLabel}…</i>`,
       {
         parse_mode: "HTML",
