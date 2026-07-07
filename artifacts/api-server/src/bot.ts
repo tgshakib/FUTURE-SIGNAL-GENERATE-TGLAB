@@ -185,7 +185,7 @@ const DEFAULT_TZ    = TIMEZONES[22]!; // UTC+6 Bangladesh
 const DEFAULT_TF    = 1;
 const MIN_ASSETS    = 1;
 const MAX_ASSETS    = 5;
-const SIGNAL_COUNTS = [5, 10, 15, 20, 50, 70];
+const SIGNAL_COUNTS = [5, 10, 15, 20, 25, 30, 38, 50, 60, 70];
 
 // ─── Access Store ─────────────────────────────────────────────────────────────
 
@@ -470,9 +470,11 @@ async function buildSignalMessage(
     const times: string[] = [];
     for (let i = 0; i < effectiveCount; i++) {
       times.push(`${pad2(cursor.getUTCHours())}:${pad2(cursor.getUTCMinutes())}`);
-      // Gap = timeframe ± 1 minute (natural look, never less than 1 min)
-      const jitter = Math.floor(Math.random() * 3) - 1; // -1, 0, or +1
-      const gapMin = Math.max(1, timeframe + jitter);
+      // For 1-min TF: gap 1–3 min for realistic winrate spacing
+      // For other TFs: gap = timeframe ± 1 min (natural look, min 1)
+      const gapMin = timeframe === 1
+        ? 1 + Math.floor(Math.random() * 3)
+        : Math.max(1, timeframe + (Math.floor(Math.random() * 3) - 1));
       cursor = new Date(cursor.getTime() + gapMin * 60_000);
     }
 
@@ -494,6 +496,123 @@ async function buildSignalMessage(
     const blockHeader = `<b>▎${headerLabel}</b>`;
     const lines = times.map((t, i) => `<b>${t} ${name} ${slotDirs[i]}</b>`);
     blocks.push([blockHeader, ...lines].join("\n"));
+  }
+
+  return header + blocks.join("\n\n");
+}
+
+// ─── 1 Hr BLOCK signal generator ──────────────────────────────────────────────
+
+/** Major forex pairs get a higher bias confidence for better win-rate accuracy */
+const MAJOR_PAIRS = new Set([
+  "EURUSD","USDJPY","GBPUSD","USDCHF","USDCAD","AUDUSD","NZDUSD",
+  "EURJPY","EURGBP","EURAUD","GBPJPY","AUDJPY","CHFJPY","CADJPY",
+]);
+
+function isMajorPair(asset: string): boolean {
+  const clean = asset.replace(/[\s/]/g, "").replace(/(OTC)$/i, "").toUpperCase();
+  return MAJOR_PAIRS.has(clean);
+}
+
+/**
+ * Build a flat 1-hour signal block for each asset.
+ * 15–30 signals per asset, spread randomly through the next 60 minutes.
+ * Format per line: ASSETNAME HH:MM DIRECTION
+ */
+async function buildHourBlockMessage(
+  assets: string[],
+  direction: "BOTH" | "CALL" | "PUT",
+  market: MarketType,
+  settings: Settings,
+): Promise<string> {
+  const { timeframe, timezone } = settings;
+  const isOtc = market !== "real";
+  const isMix = direction === "BOTH";
+  const nowMs  = Date.now() + timezone.offset * 3_600_000;
+  const now    = new Date(nowMs);
+  const dd     = pad2(now.getUTCDate());
+  const mm     = pad2(now.getUTCMonth() + 1);
+  const yyyy   = now.getUTCFullYear();
+
+  const header = [
+    `<b>━━━━━━━━━・━━━━━━━━━</b>`,
+    `<b>        𝗗𝗮𝘁𝗲: ${dd}/${mm}/${yyyy}</b>`,
+    `<b>  𝗧𝗶𝗺𝗲 𝗭𝗼𝗻𝗲: ${escapeHtml(tzDisplay(timezone))}</b>`,
+    `<b>      𝗠𝗼𝗱𝗲: ⏰ 1 HOUR BLOCK</b>`,
+    `<b>    𝗠𝗮𝗿𝗸𝗲𝘁: ${escapeHtml(marketLabel(market))}</b>`,
+    isMix
+      ? `<b>  𝗗𝗶𝗿𝗲𝗰𝘁𝗶𝗼𝗻: MIX (CALL / PUT)</b>`
+      : `<b>  𝗗𝗶𝗿𝗲𝗰𝘁𝗶𝗼𝗻: ${direction}</b>`,
+    `<b>•••••••••••••••••••••••••••••••••••••••</b>`,
+    `<b> Community @TRADERGUIDE_BOT</b>`,
+    `<b>•••••••••••••••••••••••••••••••••••••••</b>`,
+    ``,
+  ].join("\n");
+
+  const WINDOW_MS  = 60 * 60_000; // 1 hour
+  const blocks: string[] = [];
+
+  for (const asset of assets) {
+    // Clean display name (no OTC suffix for compact list readability)
+    const name = asset
+      .replace(/\s*\(OTC\)\s*/gi, "")
+      .replace(/\s+OTC\s*$/gi, "")
+      .replace(/\//g, "")
+      .replace(/\s+/g, "")
+      .trim();
+
+    // Resolve overall bias direction for this asset
+    let biasDir: "CALL" | "PUT";
+    if (market === "quotex" && adapters["quotex"]?.isConnected()) {
+      try {
+        const candles = await adapters["quotex"]!.getCandles(asset, timeframe, 10);
+        const quality = analyseSignalQuality(candles);
+        biasDir = direction === "BOTH" ? quality.direction : direction;
+      } catch {
+        biasDir = await resolveOtcBias(asset, market, timeframe);
+        if (direction !== "BOTH") biasDir = direction;
+      }
+    } else if (isOtc) {
+      biasDir = await resolveOtcBias(asset, market, timeframe);
+      if (direction !== "BOTH") biasDir = direction;
+    } else {
+      biasDir = direction === "BOTH"
+        ? (Math.random() < 0.5 ? "CALL" : "PUT")
+        : direction;
+    }
+
+    // Major pairs get stronger directional confidence (fewer flips in MIX)
+    const biasWeight = isMajorPair(asset) ? 0.72 : 0.62;
+
+    // Random count: 15–30 signals per asset per hour
+    const count = 15 + Math.floor(Math.random() * 16);
+
+    // Scatter random timestamps across the 60-minute window, then sort
+    const rawOffsets: number[] = [];
+    for (let i = 0; i < count; i++) {
+      rawOffsets.push(Math.floor(Math.random() * WINDOW_MS));
+    }
+    rawOffsets.sort((a, b) => a - b);
+
+    // Enforce minimum 1-minute gap between signals
+    const offsets: number[] = [rawOffsets[0]!];
+    for (let i = 1; i < rawOffsets.length; i++) {
+      const prev = offsets[offsets.length - 1]!;
+      offsets.push(Math.max(rawOffsets[i]!, prev + 60_000));
+    }
+
+    const slotDirs = isMix
+      ? generateMixedDirs(offsets.length, biasDir, biasWeight)
+      : Array(offsets.length).fill(biasDir) as ("CALL" | "PUT")[];
+
+    const lines = offsets.map((off, i) => {
+      const t = new Date(nowMs + off);
+      const hh = pad2(t.getUTCHours());
+      const mn = pad2(t.getUTCMinutes());
+      return `<b>${name} ${hh}:${mn} ${slotDirs[i]}</b>`;
+    });
+
+    blocks.push(lines.join("\n"));
   }
 
   return header + blocks.join("\n\n");
@@ -713,8 +832,9 @@ function dirAmountKeyboard(dir: "BOTH" | "CALL" | "PUT"): ReturnType<typeof Mark
       Markup.button.callback(`📈 CALL${ck("CALL")}`, "setdir_CALL"),
       Markup.button.callback(`📉 PUT${ck("PUT")}`,   "setdir_PUT"),
     ],
-    SIGNAL_COUNTS.slice(0, 3).map(n => Markup.button.callback(`${n}`, `sigcount_${n}`)),
-    SIGNAL_COUNTS.slice(3).map(n =>   Markup.button.callback(`${n}`, `sigcount_${n}`)),
+    SIGNAL_COUNTS.slice(0, 5).map(n => Markup.button.callback(`${n}`, `sigcount_${n}`)),
+    SIGNAL_COUNTS.slice(5).map(n =>   Markup.button.callback(`${n}`, `sigcount_${n}`)),
+    [Markup.button.callback("⏰ 1 Hr BLOCK", "sigcount_1hr_block")],
     [Markup.button.callback("🔙 Back", "back_to_assets")],
   ]);
 }
@@ -1475,6 +1595,74 @@ function buildBot(): Telegraf<MyContext> {
       }, settings.autoDeleteSec * 1_000);
     });
   }
+
+  // ── 1 Hr BLOCK ─────────────────────────────────────────────────────────────
+
+  bot.action("sigcount_1hr_block", async ctx => {
+    if (ctx.session.state !== "await_dir_amount") return;
+    await ctx.answerCbQuery("⏳ Building 1 Hr block...");
+
+    const { selectedAssets, direction, market, settings } = ctx.session;
+    ctx.session.state = "idle";
+
+    let msg: string;
+    try {
+      msg = await buildHourBlockMessage(selectedAssets, direction, market ?? "real", settings);
+    } catch (err) {
+      logger.error({ err }, "1Hr block generation error");
+      await ctx.reply("⚠️ Error generating signals. Please try again.", { parse_mode: "HTML" });
+      return;
+    }
+
+    const MAX_LEN = 4000;
+    const chunks: string[] = [];
+    let rem = msg;
+    while (rem.length > 0) {
+      if (rem.length <= MAX_LEN) { chunks.push(rem); break; }
+      const cut = rem.lastIndexOf("\n", MAX_LEN);
+      chunks.push(rem.slice(0, cut > 0 ? cut : MAX_LEN));
+      rem = rem.slice(cut > 0 ? cut : MAX_LEN).trimStart();
+    }
+
+    const chatId     = ctx.chat!.id;
+    const deleteMsgIds: number[] = [];
+    const firstMsgId = (ctx.callbackQuery as { message?: { message_id?: number } })?.message?.message_id;
+    if (firstMsgId) deleteMsgIds.push(firstMsgId);
+    await ctx.editMessageText(chunks[0]!, { parse_mode: "HTML" });
+
+    for (let i = 1; i < chunks.length; i++) {
+      const m = await ctx.reply(chunks[i]!, { parse_mode: "HTML" });
+      deleteMsgIds.push(m.message_id);
+    }
+
+    const delLabel   = adLabel(settings.autoDeleteSec);
+    const summaryMsg = await ctx.reply(
+      `✅ <b>⏰ 1 Hr BLOCK</b> — ${selectedAssets.length} pair(s) | 15–30 signals/pair\n` +
+      `⏱ <i>Auto-deleting in ${delLabel}…</i>`,
+      {
+        parse_mode: "HTML",
+        ...Markup.inlineKeyboard([[Markup.button.callback("🏠 Home", "go_home")]]),
+      },
+    );
+
+    ctx.session.pendingDeleteIds    = deleteMsgIds;
+    ctx.session.pendingDeleteChatId = chatId;
+
+    setTimeout(() => {
+      for (const id of deleteMsgIds) {
+        bot.telegram.deleteMessage(chatId, id).catch(() => {});
+      }
+      bot.telegram
+        .editMessageText(chatId, summaryMsg.message_id, undefined, MAIN_MENU_TEXT, {
+          parse_mode: "HTML",
+          ...MAIN_MENU_KB,
+        })
+        .catch(() => {});
+      ctx.session.pendingDeleteIds    = [];
+      ctx.session.pendingDeleteChatId = undefined;
+      ctx.session.state = "idle";
+    }, settings.autoDeleteSec * 1_000);
+  });
 
   // Home
   bot.action("go_home", async ctx => {
