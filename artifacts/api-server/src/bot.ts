@@ -46,7 +46,7 @@ const brokerSharedOtcAssets = [
   "USD/IDR OTC", "JOD/CNY OTC", "GBP/JPY OTC", "USD/BDT OTC", "USD/PHP OTC",
   "AUD/CAD OTC", "USD/VND OTC", "ZAR/USD OTC", "CHF/JPY OTC", "AUD/JPY OTC",
   "AUD/NZD OTC", "EUR/TRY OTC", "USD/MYR OTC", "USD/SGD OTC", "USD/CAD OTC",
-  "NZD/JPY OTC",
+  "NZD/JPY OTC", "AUD/USD OTC",
 ];
 
 // ─── Timezones ─────────────────────────────────────────────────────────────────
