@@ -349,38 +349,6 @@ function generateMixedDirs(
   return dirs;
 }
 
-/**
- * Resolve a bias direction for the given asset using Quotex OTC data.
- * Quotex OTC is inversely correlated with all other OTC brokers.
- *   • For Quotex market  → use Quotex direction directly.
- *   • For all other OTC  → use Quotex direction INVERTED.
- *   • For Real market    → pure random (no Quotex relationship).
- */
-async function resolveOtcBias(
-  asset: string,
-  market: MarketType,
-  timeframe: number,
-): Promise<"CALL" | "PUT"> {
-  const qAdapter = adapters["quotex"];
-  const random = (): "CALL" | "PUT" => (Math.random() < 0.5 ? "CALL" : "PUT");
-
-  if (market === "real") return random();
-
-  // Always anchor to Quotex for direction analysis
-  let quotexDir: "CALL" | "PUT" = random();
-  if (qAdapter?.isConnected()) {
-    try {
-      const candles = await qAdapter.getCandles(asset, timeframe, 10);
-      quotexDir = analyseSignalQuality(candles).direction;
-    } catch {
-      quotexDir = random();
-    }
-  }
-
-  // Quotex → use directly; all others → invert (inverse relationship)
-  return market === "quotex" ? quotexDir : invertDir(quotexDir);
-}
-
 // ─── Signal Generator ──────────────────────────────────────────────────────────
 
 async function buildSignalMessage(
@@ -413,9 +381,6 @@ async function buildSignalMessage(
     isMix
       ? `<b>📊 Direction: MIX (probability-weighted CALL/PUT per signal)</b>`
       : `<b>📊 Direction: ${direction}</b>`,
-    ...(isOtc && market !== "quotex"
-      ? [`<b>🔄 Analysis: Quotex OTC inverse-correlation applied</b>`]
-      : []),
     `<b>•••••••••••••••••••••••••••••••••••••••</b>`,
     `<b> Community @TRADERGUIDE_BOT</b>`,
     `<b>•••••••••••••••••••••••••••••••••••••••</b>`,
@@ -448,16 +413,12 @@ async function buildSignalMessage(
         }
         biasDir = direction === "BOTH" ? quality.direction : direction;
       } catch {
-        biasDir = await resolveOtcBias(asset, market, timeframe);
-        if (direction !== "BOTH") biasDir = direction;
+        biasDir = direction === "BOTH"
+          ? (Math.random() < 0.5 ? "CALL" : "PUT")
+          : direction;
       }
-    } else if (isOtc) {
-      // PO / IQ / Olymp — derive from Quotex inverse relationship
-      biasDir = await resolveOtcBias(asset, market, timeframe);
-      // If user forced a direction, respect it (inverse logic still informs MIX weight only)
-      if (direction !== "BOTH") biasDir = direction;
     } else {
-      // Real market — random
+      // OTC (PO/IQ/Olymp) or Real — each broker analysed independently
       biasDir = direction === "BOTH"
         ? (Math.random() < 0.5 ? "CALL" : "PUT")
         : direction;
@@ -572,13 +533,12 @@ async function buildHourBlockMessage(
         const quality = analyseSignalQuality(candles);
         biasDir = direction === "BOTH" ? quality.direction : direction;
       } catch {
-        biasDir = await resolveOtcBias(asset, market, timeframe);
-        if (direction !== "BOTH") biasDir = direction;
+        biasDir = direction === "BOTH"
+          ? (Math.random() < 0.5 ? "CALL" : "PUT")
+          : direction;
       }
-    } else if (isOtc) {
-      biasDir = await resolveOtcBias(asset, market, timeframe);
-      if (direction !== "BOTH") biasDir = direction;
     } else {
+      // OTC (PO/IQ/Olymp) or Real — each broker analysed independently
       biasDir = direction === "BOTH"
         ? (Math.random() < 0.5 ? "CALL" : "PUT")
         : direction;
