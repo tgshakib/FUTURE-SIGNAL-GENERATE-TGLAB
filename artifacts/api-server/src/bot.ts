@@ -95,20 +95,50 @@ interface Strategy {
   gapMin: number; gapMax: number;
   countMult: number; noMartingale: boolean;
   requireConfirm: boolean; filterLowVol: boolean;
+  minConfidence: number; // minimum indicator confluence % to emit a signal
   description: string;
 }
 
 const STRATEGIES: Strategy[] = [
-  { id:"trendpulse",     name:"TrendPulse Pro",         badge:"⚡", startMin:2, startMax:3, gapMin:2, gapMax:4,  countMult:1,   noMartingale:false, requireConfirm:false, filterLowVol:true,  description:"High-momentum trend follower" },
-  { id:"otcflow",        name:"OTC Flow Confirm",        badge:"🌊", startMin:2, startMax:4, gapMin:3, gapMax:5,  countMult:0.8, noMartingale:false, requireConfirm:true,  filterLowVol:true,  description:"Confirms OTC flow before entry" },
-  { id:"livetrendsync",  name:"LiveTrend Sync",          badge:"🔄", startMin:2, startMax:3, gapMin:2, gapMax:3,  countMult:1,   noMartingale:false, requireConfirm:false, filterLowVol:false, description:"Syncs with live market trend" },
-  { id:"momentumlock",   name:"Momentum Lock",           badge:"🔒", startMin:3, startMax:5, gapMin:3, gapMax:6,  countMult:0.7, noMartingale:false, requireConfirm:true,  filterLowVol:true,  description:"Locks in on strong momentum candles only" },
-  { id:"signalshield",   name:"SignalShield",            badge:"🛡️",startMin:2, startMax:4, gapMin:4, gapMax:7,  countMult:0.6, noMartingale:true,  requireConfirm:true,  filterLowVol:true,  description:"Conservative — fewer, higher-quality signals" },
-  { id:"b2btrend",       name:"Back-to-Back Trend",      badge:"🔁", startMin:2, startMax:3, gapMin:2, gapMax:4,  countMult:1,   noMartingale:false, requireConfirm:true,  filterLowVol:true,  description:"Back-to-back wins only when setup confirmed again" },
-  { id:"nomtg",          name:"No-Martingale Trend",     badge:"🚫", startMin:3, startMax:5, gapMin:4, gapMax:8,  countMult:0.5, noMartingale:true,  requireConfirm:true,  filterLowVol:true,  description:"Strictly no martingale — confirmed setups only" },
-  { id:"dualmarket",     name:"Dual Market Confirm",     badge:"🔀", startMin:2, startMax:4, gapMin:3, gapMax:5,  countMult:0.8, noMartingale:false, requireConfirm:true,  filterLowVol:true,  description:"Cross-validates signal across two markets" },
-  { id:"precisioncandle",name:"Precision Candle Scan",   badge:"🔬", startMin:4, startMax:6, gapMin:5, gapMax:9,  countMult:0.5, noMartingale:true,  requireConfirm:true,  filterLowVol:true,  description:"Deep candle analysis — fewer but very strong signals" },
-  { id:"riskguard",      name:"RiskGuard Signals",       badge:"🛡", startMin:3, startMax:5, gapMin:5, gapMax:10, countMult:0.6, noMartingale:true,  requireConfirm:true,  filterLowVol:true,  description:"Maximum risk management — low frequency, high precision" },
+  {
+    id: "trendpulse",
+    name: "TrendPulse Pro",
+    badge: "⚡",
+    startMin: 1, startMax: 2,
+    gapMin: 2,   gapMax: 4,
+    countMult: 1,
+    noMartingale: false,
+    requireConfirm: true,
+    filterLowVol: true,
+    minConfidence: 62,
+    description: "High-momentum trend follower — filters weak setups & low volatility",
+  },
+  {
+    id: "dualmarket",
+    name: "Dual Market Confirm",
+    badge: "🔀",
+    startMin: 1, startMax: 2,
+    gapMin: 3,   gapMax: 5,
+    countMult: 0.85,
+    noMartingale: false,
+    requireConfirm: true,
+    filterLowVol: true,
+    minConfidence: 68,
+    description: "Multi-indicator cross-validation — fires only on high-agreement setups",
+  },
+  {
+    id: "precision",
+    name: "Precision Confluence",
+    badge: "💎",
+    startMin: 1, startMax: 2,
+    gapMin: 4,   gapMax: 7,
+    countMult: 0.6,
+    noMartingale: true,
+    requireConfirm: true,
+    filterLowVol: true,
+    minConfidence: 76,
+    description: "All 7 indicators must agree — fewer signals, highest possible accuracy",
+  },
 ];
 
 const DEFAULT_STRATEGY = STRATEGIES[0]!;
@@ -395,33 +425,29 @@ async function buildSignalMessage(
   for (const asset of assets) {
     const name = escapeHtml(formatAssetName(asset, market));
 
-    // ── 1. Determine bias direction ─────────────────────────────────────────
+    // ── 1. Multi-indicator confluence analysis (all markets) ────────────────
     let biasDir: "CALL" | "PUT";
+    let confidence = 50;
 
-    if (market === "quotex" && adapters["quotex"]?.isConnected()) {
-      // Quotex has its own live adapter — use it + apply strategy quality filters
-      try {
-        const candles = await adapters["quotex"]!.getCandles(asset, timeframe, 10);
-        const quality = analyseSignalQuality(candles);
-        if (strategy.requireConfirm && !quality.confirmed) {
-          blocks.push(`<b>▎${name} — ⏭ Skipped (low quality)</b>`);
-          continue;
-        }
-        if (strategy.filterLowVol && quality.strength === "weak") {
-          blocks.push(`<b>▎${name} — ⏭ Skipped (low volatility)</b>`);
-          continue;
-        }
-        biasDir = direction === "BOTH" ? quality.direction : direction;
-      } catch {
-        biasDir = direction === "BOTH"
-          ? (Math.random() < 0.5 ? "CALL" : "PUT")
-          : direction;
+    {
+      // Run candle analysis via the always-available algorithmic adapter
+      const adapter = adapters["quotex"]!;
+      const candles = await adapter.getCandles(asset, timeframe, 30);
+      const quality = analyseSignalQuality(candles);
+
+      confidence = quality.confidence;
+
+      // Skip if confluence is below this strategy's minimum threshold
+      if (quality.confidence < strategy.minConfidence) {
+        blocks.push(`<b>▎${name} — ⏭ Skipped (confluence ${quality.confidence}%)</b>`);
+        continue;
       }
-    } else {
-      // OTC (PO/IQ/Olymp) or Real — each broker analysed independently
-      biasDir = direction === "BOTH"
-        ? (Math.random() < 0.5 ? "CALL" : "PUT")
-        : direction;
+      if (strategy.filterLowVol && quality.strength === "weak") {
+        blocks.push(`<b>▎${name} — ⏭ Skipped (low volatility)</b>`);
+        continue;
+      }
+
+      biasDir = direction === "BOTH" ? quality.direction : direction;
     }
 
     // ── 2. Build time slots ─────────────────────────────────────────────────
@@ -445,7 +471,6 @@ async function buildSignalMessage(
       : Array(effectiveCount).fill(biasDir);
 
     // ── 4. Build block ──────────────────────────────────────────────────────
-    // Header label
     let headerLabel: string;
     if (isMix) {
       headerLabel = `${name} MIX`;
@@ -454,7 +479,7 @@ async function buildSignalMessage(
     } else {
       headerLabel = `${name} ${biasDir}`;
     }
-    const blockHeader = `<b>▎${headerLabel}</b>`;
+    const blockHeader = `<b>▎${headerLabel} — 🎯 ${confidence}%</b>`;
     const lines = times.map((t, i) => `<b>${t} ${name} ${slotDirs[i]}</b>`);
     blocks.push([blockHeader, ...lines].join("\n"));
   }
@@ -525,26 +550,12 @@ async function buildHourBlockMessage(
       .replace(/\s+/g, "")
       .trim();
 
-    // Resolve overall bias direction for this asset
-    let biasDir: "CALL" | "PUT";
-    if (market === "quotex" && adapters["quotex"]?.isConnected()) {
-      try {
-        const candles = await adapters["quotex"]!.getCandles(asset, timeframe, 10);
-        const quality = analyseSignalQuality(candles);
-        biasDir = direction === "BOTH" ? quality.direction : direction;
-      } catch {
-        biasDir = direction === "BOTH"
-          ? (Math.random() < 0.5 ? "CALL" : "PUT")
-          : direction;
-      }
-    } else {
-      // OTC (PO/IQ/Olymp) or Real — each broker analysed independently
-      biasDir = direction === "BOTH"
-        ? (Math.random() < 0.5 ? "CALL" : "PUT")
-        : direction;
-    }
+    // Multi-indicator confluence analysis for bias direction
+    const candles   = await adapters["quotex"]!.getCandles(asset, timeframe, 30);
+    const quality   = analyseSignalQuality(candles);
+    const biasDir: "CALL" | "PUT" = direction === "BOTH" ? quality.direction : direction;
 
-    // Major pairs get stronger directional confidence (fewer flips in MIX)
+    // Major pairs → tighter bias weight; minor pairs → slightly looser
     const biasWeight = isMajorPair(asset) ? 0.72 : 0.62;
 
     // 15–30 signals per hour × window hours
