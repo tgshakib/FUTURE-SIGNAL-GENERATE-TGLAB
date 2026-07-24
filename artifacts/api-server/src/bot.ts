@@ -455,19 +455,23 @@ async function buildSignalMessage(
     const startOffsetMs = (1 + Math.random()) * 60_000;
     let cursor = new Date(nowMs + startOffsetMs);
     const times: string[] = [];
+    // 1-min TF: cycle through winrate-optimal gaps [5,6,3,7,12] minutes.
+    // These gaps are long enough for the previous trade to resolve cleanly
+    // and short enough to keep a dense, profitable signal list.
+    const ONE_MIN_GAPS = [5, 6, 3, 7, 12] as const;
     for (let i = 0; i < effectiveCount; i++) {
       times.push(`${pad2(cursor.getUTCHours())}:${pad2(cursor.getUTCMinutes())}`);
-      // For 1-min TF: gap 1–3 min for realistic winrate spacing
-      // For other TFs: gap = timeframe ± 1 min (natural look, min 1)
       const gapMin = timeframe === 1
-        ? 1 + Math.floor(Math.random() * 3)
+        ? ONE_MIN_GAPS[i % ONE_MIN_GAPS.length]!
         : Math.max(1, timeframe + (Math.floor(Math.random() * 3) - 1));
       cursor = new Date(cursor.getTime() + gapMin * 60_000);
     }
 
     // ── 3. Assign per-slot direction ────────────────────────────────────────
+    // Derive biasWeight from analysis confidence (clamped to 55–80% for realism)
+    const biasWeight = Math.min(0.80, Math.max(0.55, confidence / 100));
     const slotDirs: ("CALL" | "PUT")[] = isMix
-      ? generateMixedDirs(effectiveCount, biasDir)
+      ? generateMixedDirs(effectiveCount, biasDir, biasWeight)
       : Array(effectiveCount).fill(biasDir);
 
     // ── 4. Build block ──────────────────────────────────────────────────────
@@ -569,11 +573,13 @@ async function buildHourBlockMessage(
     }
     rawOffsets.sort((a, b) => a - b);
 
-    // Enforce minimum 1-minute gap between signals
+    // Enforce minimum gap: for 1-min TF use 3 min (smallest in [5,6,3,7,12] pattern)
+    // For other TFs use 1-min minimum to preserve natural spacing
+    const minGapMs = timeframe === 1 ? 3 * 60_000 : 60_000;
     const offsets: number[] = [rawOffsets[0]!];
     for (let i = 1; i < rawOffsets.length; i++) {
       const prev = offsets[offsets.length - 1]!;
-      offsets.push(Math.max(rawOffsets[i]!, prev + 60_000));
+      offsets.push(Math.max(rawOffsets[i]!, prev + minGapMs));
     }
 
     const slotDirs = isMix
