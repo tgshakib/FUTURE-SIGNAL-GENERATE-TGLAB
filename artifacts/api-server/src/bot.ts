@@ -647,11 +647,9 @@ const PAYWALL_TEXT =
   `or Join our VIP to get <b>Free Advance Signals</b>.`;
 
 const PAYWALL_KB = Markup.inlineKeyboard([
-  [
-    Markup.button.url("💬 CHAT",          ADMIN_CHAT_URL),
-    Markup.button.callback("💳 ACCESS BUY", "access_buy"),
-    Markup.button.url("⭐ VIP AUTO JOIN",  "https://t.me/managementTG_bot"),
-  ],
+  [Markup.button.url("💬 CHAT WITH ADMIN",      ADMIN_CHAT_URL)],
+  [Markup.button.callback("💳 ACCESS BUY",       "access_buy")],
+  [Markup.button.url("⭐ VIP AUTO JOIN",         "https://t.me/managementTG_bot")],
 ]);
 
 const EXPIRY_WARNING_KB = Markup.inlineKeyboard([
@@ -677,7 +675,7 @@ function buildPriceListKeyboard(): ReturnType<typeof Markup.inlineKeyboard> {
   for (let i = 0; i < PACKAGES.length; i += 2) {
     const pair = PACKAGES.slice(i, i + 2);
     rows.push(pair.map(p =>
-      Markup.button.callback(`${p.badge} ${p.label} · $${p.price}`, `pkg_${p.id}`)
+      Markup.button.callback(`${p.label} · $${p.price}`, `pkg_${p.id}`)
     ));
   }
   rows.push([Markup.button.callback("🔙 Back", "paywall_back")]);
@@ -701,9 +699,11 @@ function buildPkgDetailKeyboard(pkgId: string): ReturnType<typeof Markup.inlineK
   ]);
 }
 
-function buildPaymentInstructionsText(pkg: Package): string {
+// ─── Payment — Page 1 (Binance Pay · USDT TRC20 · BTC · BNB BEP20) ─────────
+
+function buildPaymentPage1Text(pkg: Package): string {
   return (
-    `💳 <b>Payment Instructions</b>\n` +
+    `💳 <b>Payment Instructions</b>  <i>(Page 1 / 2)</i>\n` +
     `📦 <b>Package:</b>  ${pkg.badge} ${escapeHtml(pkg.label)}\n` +
     `💰 <b>Amount:</b>  <code>$${pkg.price}</code>\n\n` +
 
@@ -718,14 +718,34 @@ function buildPaymentInstructionsText(pkg: Package): string {
     `🏷  <b>Wallet Address:</b>\n<code>${USDT_TRC20_ADDR}</code>\n\n` +
 
     `━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
+    `🟠 <b>BTC — Bitcoin Network</b>\n` +
+    `━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
+    `🏷  <b>Wallet Address:</b>\n<code>${BTC_ADDR}</code>\n\n` +
+
+    `━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
     `🟡 <b>BNB Smart Chain — BEP20</b>\n` +
     `━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
     `🏷  <b>Wallet Address:</b>\n<code>${BNB_BEP20_ADDR}</code>\n\n` +
 
-    `━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
-    `🟠 <b>BTC — Bitcoin Network</b>\n` +
-    `━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
-    `🏷  <b>Wallet Address:</b>\n<code>${BTC_ADDR}</code>\n\n` +
+    `<i>👉 Tap Next for more payment options</i>`
+  );
+}
+
+function buildPaymentPage1Keyboard(pkgId: string): ReturnType<typeof Markup.inlineKeyboard> {
+  return Markup.inlineKeyboard([
+    [Markup.button.callback("📸 Send Payment Screenshot",  `send_screenshot_${pkgId}`)],
+    [Markup.button.callback("➡️ Next Page (ETH · SOL)",   `pay_page2_${pkgId}`)],
+    [Markup.button.callback("❌ Cancel",                    "access_buy")],
+  ]);
+}
+
+// ─── Payment — Page 2 (Ethereum ERC20 · Solana) ──────────────────────────────
+
+function buildPaymentPage2Text(pkg: Package): string {
+  return (
+    `💳 <b>Payment Instructions</b>  <i>(Page 2 / 2)</i>\n` +
+    `📦 <b>Package:</b>  ${pkg.badge} ${escapeHtml(pkg.label)}\n` +
+    `💰 <b>Amount:</b>  <code>$${pkg.price}</code>\n\n` +
 
     `━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
     `🔷 <b>Ethereum — ERC20</b>\n` +
@@ -741,10 +761,11 @@ function buildPaymentInstructionsText(pkg: Package): string {
   );
 }
 
-function buildPaymentInstructionsKeyboard(pkgId: string): ReturnType<typeof Markup.inlineKeyboard> {
+function buildPaymentPage2Keyboard(pkgId: string): ReturnType<typeof Markup.inlineKeyboard> {
   return Markup.inlineKeyboard([
-    [Markup.button.callback("📸 Send Payment Screenshot", `send_screenshot_${pkgId}`)],
-    [Markup.button.callback("❌ Cancel",                  "access_buy")],
+    [Markup.button.callback("📸 Send Payment Screenshot",      `send_screenshot_${pkgId}`)],
+    [Markup.button.callback("⬅️ Back (Binance · USDT · BTC · BNB)", `pay_page1_${pkgId}`)],
+    [Markup.button.callback("❌ Cancel",                         "access_buy")],
   ]);
 }
 
@@ -771,15 +792,13 @@ function buildApprovalWelcomeText(pkg: Package, firstName: string): string {
 function buildMarketKeyboard(userId: number): ReturnType<typeof Markup.inlineKeyboard> {
   const rows: ReturnType<typeof Markup.button.callback>[][] = [
     [
-      Markup.button.callback("🌍 Real Market",  "market_real"),
-      Markup.button.callback("📈 Quotex OTC",   "market_quotex"),
+      Markup.button.callback("🌍 Real Market",       "market_real"),
+      Markup.button.callback("📈 Quotex OTC",        "market_quotex"),
     ],
+    [Markup.button.callback("💼 Pocket Option OTC",  "market_po")],
     [
-      Markup.button.callback("💼 Pocket OTC",   "market_po"),
-      Markup.button.callback("📊 IQ Option OTC","market_iq"),
-    ],
-    [
-      Markup.button.callback("🏦 Olymp OTC",    "market_olymp"),
+      Markup.button.callback("📊 IQ Option OTC",     "market_iq"),
+      Markup.button.callback("🏦 Olymp Trade OTC",   "market_olymp"),
     ],
     ...(isAdmin(userId) ? [[Markup.button.callback("👑 ASSESS USER", "assess_users")]] : []),
     [Markup.button.callback("🔙 Back", "back_to_menu")],
@@ -1271,7 +1290,21 @@ function buildBot(): Telegraf<MyContext> {
     const pkg = getPkg(ctx.match[1]);
     if (!pkg) return;
     ctx.session.pendingPackageId = pkg.id;
-    await ctx.editMessageText(buildPaymentInstructionsText(pkg), { parse_mode: "HTML", ...buildPaymentInstructionsKeyboard(pkg.id) });
+    await ctx.editMessageText(buildPaymentPage1Text(pkg), { parse_mode: "HTML", ...buildPaymentPage1Keyboard(pkg.id) });
+  });
+
+  bot.action(/^pay_page2_(.+)$/, async ctx => {
+    await ctx.answerCbQuery();
+    const pkg = getPkg(ctx.match[1]);
+    if (!pkg) return;
+    await ctx.editMessageText(buildPaymentPage2Text(pkg), { parse_mode: "HTML", ...buildPaymentPage2Keyboard(pkg.id) });
+  });
+
+  bot.action(/^pay_page1_(.+)$/, async ctx => {
+    await ctx.answerCbQuery();
+    const pkg = getPkg(ctx.match[1]);
+    if (!pkg) return;
+    await ctx.editMessageText(buildPaymentPage1Text(pkg), { parse_mode: "HTML", ...buildPaymentPage1Keyboard(pkg.id) });
   });
 
   bot.action(/^send_screenshot_(.+)$/, async ctx => {
