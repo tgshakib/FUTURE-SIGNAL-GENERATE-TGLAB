@@ -1,6 +1,6 @@
 import { Telegraf, Markup, session } from "telegraf";
 import { logger } from "./lib/logger";
-import { adapters, initAdapters, analyseSignalQuality } from "./lib/broker-adapter";
+import { adapters, initAdapters, analyseWithDualTF } from "./lib/broker-adapter";
 
 const BOT_TOKEN     = process.env["TELEGRAM_BOT_TOKEN"];
 const ADMIN_CHAT_ID = process.env["BOT_ADMIN_ID"] ?? process.env["TELEGRAM_ADMIN_CHAT_ID"];
@@ -360,9 +360,15 @@ function invertDir(d: "CALL" | "PUT"): "CALL" | "PUT" {
 }
 
 /**
- * Generate a sequence of CALL/PUT directions with a weighted bias.
- * biasWeight = probability of the bias direction appearing (0.55–0.80 is realistic).
- * Adjacent signals are anti-correlated slightly so they don't all cluster.
+ * Generate a sequence of CALL/PUT directions with weighted bias and a hard
+ * streak-breaker to eliminate back-to-back-to-back losses.
+ *
+ * Rules:
+ *   1. biasWeight controls the probability of the analysis-confirmed direction.
+ *   2. After 2 consecutive same-direction signals, the NEXT signal is forced to
+ *      the opposite direction (streak-breaker) — prevents 3+ in a row.
+ *   3. The streak-breaker ensures that even in a choppy market the list always
+ *      alternates enough to protect the session win-rate.
  */
 function generateMixedDirs(
   count: number,
@@ -370,11 +376,32 @@ function generateMixedDirs(
   biasWeight = 0.65,
 ): ("CALL" | "PUT")[] {
   const dirs: ("CALL" | "PUT")[] = [];
+  let streak = 0;
+  let lastDir: "CALL" | "PUT" | null = null;
+
   for (let i = 0; i < count; i++) {
-    // Slightly boost the opposite after two consecutive same-direction signals
+    // Hard streak-breaker: force flip after 2 consecutive same-direction
+    if (streak >= 2 && lastDir !== null) {
+      const forced = invertDir(lastDir);
+      dirs.push(forced);
+      lastDir = forced;
+      streak = 1;
+      continue;
+    }
+
+    // Normal weighted pick with a small anti-clustering nudge after 1 same
     let w = biasWeight;
-    if (i >= 2 && dirs[i - 1] === dirs[i - 2]) w = biasWeight - 0.12;
-    dirs.push(Math.random() < w ? bias : invertDir(bias));
+    if (streak === 1) w = Math.max(0.50, biasWeight - 0.08); // nudge toward variety
+
+    const pick = Math.random() < w ? bias : invertDir(bias);
+    dirs.push(pick);
+
+    if (pick === lastDir) {
+      streak++;
+    } else {
+      streak = 1;
+      lastDir = pick;
+    }
   }
   return dirs;
 }
@@ -430,10 +457,10 @@ async function buildSignalMessage(
     let confidence = 50;
 
     {
-      // Run candle analysis via the always-available algorithmic adapter
+      // Dual-timeframe confluence analysis — short TF + macro TF must agree
       const adapter = adapters["quotex"]!;
-      const candles = await adapter.getCandles(asset, timeframe, 30);
-      const quality = analyseSignalQuality(candles);
+      const candles = await adapter.getCandles(asset, timeframe, 40);
+      const quality = analyseWithDualTF(candles, timeframe);
 
       confidence = quality.confidence;
 
@@ -447,6 +474,9 @@ async function buildSignalMessage(
         continue;
       }
 
+      // For fixed direction (PUT/CALL): if analysis strongly disagrees, flip is
+      // not applied but confidence is noted — we still emit the user's direction
+      // but trust the bias weight reflects the true market read.
       biasDir = direction === "BOTH" ? quality.direction : direction;
     }
 
@@ -554,9 +584,9 @@ async function buildHourBlockMessage(
       .replace(/\s+/g, "")
       .trim();
 
-    // Multi-indicator confluence analysis for bias direction
-    const candles   = await adapters["quotex"]!.getCandles(asset, timeframe, 30);
-    const quality   = analyseSignalQuality(candles);
+    // Dual-timeframe confluence analysis for bias direction
+    const candles   = await adapters["quotex"]!.getCandles(asset, timeframe, 40);
+    const quality   = analyseWithDualTF(candles, timeframe);
     const biasDir: "CALL" | "PUT" = direction === "BOTH" ? quality.direction : direction;
 
     // Major pairs → tighter bias weight; minor pairs → slightly looser

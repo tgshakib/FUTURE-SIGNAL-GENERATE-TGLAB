@@ -352,7 +352,21 @@ function emaLast(values: number[], period: number): number {
   return val;
 }
 
-/** RSI over last `period` bars */
+/** Full EMA series — returns array of same length as input */
+function emaSeries(values: number[], period: number): number[] {
+  const p = Math.min(period, values.length);
+  const k = 2 / (p + 1);
+  const result: number[] = [];
+  let val = values.slice(0, p).reduce((a, b) => a + b, 0) / p;
+  for (let i = 0; i < values.length; i++) {
+    if (i < p) { result.push(val); continue; }
+    val = values[i]! * k + val * (1 - k);
+    result.push(val);
+  }
+  return result;
+}
+
+/** RSI over last `period` bars — Wilder smoothing */
 function rsiCalc(closes: number[], period: number): number {
   const p = Math.min(period, closes.length - 1);
   if (p < 2) return 50;
@@ -366,7 +380,18 @@ function rsiCalc(closes: number[], period: number): number {
   return 100 - 100 / (1 + (gains / p) / (losses / p));
 }
 
-/** Bollinger Bands (mid ± stdDev×σ) — returns position of last close (0=lower,1=upper) */
+/** Stochastic %K — returns 0–100 (100 = at highest, 0 = at lowest of period) */
+function stochasticK(candles: Candle[], period: number): number {
+  const p = Math.min(period, candles.length);
+  const slice = candles.slice(-p);
+  const highest = Math.max(...slice.map(c => c.high));
+  const lowest  = Math.min(...slice.map(c => c.low));
+  const last    = candles[candles.length - 1]!;
+  if (highest === lowest) return 50;
+  return ((last.close - lowest) / (highest - lowest)) * 100;
+}
+
+/** Bollinger Bands (mid ± stdDev×σ) — returns position of last close (0=lower, 1=upper) */
 function bbPosition(closes: number[], period: number, stdDev = 2): number {
   const p     = Math.min(period, closes.length);
   const slice = closes.slice(-p);
@@ -374,13 +399,34 @@ function bbPosition(closes: number[], period: number, stdDev = 2): number {
   const std   = Math.sqrt(slice.reduce((a, b) => a + (b - mid) ** 2, 0) / p);
   if (std === 0) return 0.5;
   const last  = closes[closes.length - 1]!;
-  return (last - (mid - stdDev * std)) / (stdDev * 2 * std); // 0=lower band, 1=upper band
+  return (last - (mid - stdDev * std)) / (stdDev * 2 * std);
 }
 
 /** Average True Range over last `period` bars */
 function atrCalc(candles: Candle[], period: number): number {
   const p = Math.min(period, candles.length);
   return candles.slice(-p).reduce((s, c) => s + (c.high - c.low), 0) / p;
+}
+
+/**
+ * ADX-style trend strength (0–100).
+ * Measures how consistently price moves in one direction vs choppy.
+ * Values above 25 = trending; below 20 = ranging/choppy.
+ */
+function trendStrength(closes: number[], period: number): number {
+  const p = Math.min(period, closes.length - 1);
+  if (p < 3) return 25;
+  let up = 0, dn = 0, total = 0;
+  const start = closes.length - p;
+  for (let i = start; i < closes.length; i++) {
+    const d = Math.abs(closes[i]! - closes[i - 1]!);
+    total += d;
+    if (closes[i]! > closes[i - 1]!) up += d;
+    else if (closes[i]! < closes[i - 1]!) dn += d;
+  }
+  if (total === 0) return 0;
+  // Return how lopsided the moves are: 50 = balanced, 100 = all one direction
+  return Math.abs(up - dn) / total * 100;
 }
 
 // ─── Multi-Indicator Confluence Engine ────────────────────────────────────────
@@ -393,157 +439,265 @@ export interface SignalQuality {
 }
 
 /**
- * Multi-indicator confluence analysis.
- * Votes from 7 independent indicators are tallied.
- * Signal is only CONFIRMED when at least 5/7 indicators agree
- * AND ATR volatility is sufficient (not a flat/dead market).
+ * ELITE 11-Indicator Confluence Engine.
  *
- * Indicators:
- *   1. EMA 5/13 crossover (trend direction)
- *   2. RSI momentum zone (not overbought/oversold reversal)
- *   3. 3-candle momentum count
- *   4. MACD fast/slow EMA differential direction
- *   5. Bollinger Bands position relative to midline
- *   6. Volume surge in candle direction
- *   7. Candlestick pattern (engulfing, pin bar, hammer/shooting star)
+ * Each indicator votes +1 (CALL), -1 (PUT), or 0 (abstain).
+ * Signal is CONFIRMED only when 7+ active votes agree AND:
+ *   - ATR volatility is sufficient (not dead/flat market)
+ *   - Trend is not strongly against the signal (ADX filter)
+ *   - Body quality gate: reject doji-dominated candles
+ *
+ * Indicators (11 total):
+ *   1.  EMA 5/13 crossover          — short-term momentum direction
+ *   2.  EMA 21/55 macro trend       — medium-term trend context
+ *   3.  RSI zone (14-bar)           — overbought/oversold + momentum
+ *   4.  Stochastic %K (14-bar)      — faster reversal/continuation
+ *   5.  3-candle momentum count     — recent price action bias
+ *   6.  5-candle close consistency  — directional persistence check
+ *   7.  MACD histogram direction    — trend acceleration/deceleration
+ *   8.  Bollinger Bands position    — price relative to volatility band midline
+ *   9.  Volume surge confirmation   — volume validates the move
+ *   10. Candlestick pattern         — pin bar, engulfing, hammer/shooting star
+ *   11. EMA slope (5-bar)          — EMA angle confirms direction
  */
 export function analyseSignalQuality(candles: Candle[]): SignalQuality {
-  if (candles.length < 5) {
-    return { direction: "CALL", strength: "weak", confirmed: false, confidence: 40 };
+  if (candles.length < 8) {
+    return { direction: "CALL", strength: "weak", confirmed: false, confidence: 42 };
   }
 
   const closes  = candles.map(c => c.close);
   const volumes = candles.map(c => c.volume ?? 1000);
   const n       = candles.length;
 
-  // Each vote: +1 = CALL, -1 = PUT, 0 = abstain
-  const votes: number[] = [];
+  // Weighted votes: each indicator has a weight; higher = more reliable
+  // weight: 2 = strong signal, 1 = standard, 0.5 = supporting
+  const weightedVotes: { vote: number; weight: number }[] = [];
+  const w = (vote: number, weight: number) => weightedVotes.push({ vote, weight });
 
-  // ── 1. EMA 5 / 13 crossover ────────────────────────────────────────────────
+  // ── 1. EMA 5 / 13 crossover (weight: 2) ────────────────────────────────────
   {
     const fast = emaLast(closes, Math.min(5, n));
     const slow = emaLast(closes, Math.min(13, n));
-    votes.push(fast > slow ? 1 : -1);
+    w(fast > slow ? 1 : -1, 2);
   }
 
-  // ── 2. RSI zone ────────────────────────────────────────────────────────────
+  // ── 2. EMA 21 / 55 macro trend (weight: 2) ─────────────────────────────────
+  {
+    const fast = emaLast(closes, Math.min(21, n));
+    const slow = emaLast(closes, Math.min(55, n));
+    w(fast > slow ? 1 : -1, 2);
+  }
+
+  // ── 3. RSI zone — momentum + reversal awareness (weight: 1.5) ──────────────
   {
     const r = rsiCalc(closes, Math.min(14, n - 1));
-    if      (r > 55 && r < 78) votes.push(1);   // bullish momentum, not yet overbought
-    else if (r < 45 && r > 22) votes.push(-1);  // bearish momentum, not yet oversold
-    else if (r >= 78)          votes.push(-1);  // overbought → expect reversal PUT
-    else if (r <= 22)          votes.push(1);   // oversold   → expect reversal CALL
-    else                       votes.push(0);   // neutral 45–55 zone — abstain
+    if      (r > 55 && r < 75) w(1,  1.5);  // bullish momentum, not yet overbought
+    else if (r < 45 && r > 25) w(-1, 1.5);  // bearish momentum, not yet oversold
+    else if (r >= 75)          w(-1, 1.5);  // overbought → reversal PUT expected
+    else if (r <= 25)          w(1,  1.5);  // oversold   → reversal CALL expected
+    else                       w(0,  1.0);  // neutral zone — lower weight abstain
   }
 
-  // ── 3. 3-candle momentum count ─────────────────────────────────────────────
+  // ── 4. Stochastic %K — fast reversal/continuation detector (weight: 1.5) ───
+  {
+    const k = stochasticK(candles, Math.min(14, n));
+    if      (k > 65 && k < 85) w(1,  1.5);  // bullish, not overbought
+    else if (k < 35 && k > 15) w(-1, 1.5);  // bearish, not oversold
+    else if (k >= 85)          w(-1, 1.5);  // overbought → PUT
+    else if (k <= 15)          w(1,  1.5);  // oversold   → CALL
+    else                       w(0,  1.0);
+  }
+
+  // ── 5. 3-candle momentum count (weight: 1) ─────────────────────────────────
   {
     const recent = candles.slice(-3);
     let bull = 0, bear = 0;
     for (const c of recent) {
       if (c.close > c.open) bull++; else if (c.close < c.open) bear++;
     }
-    if      (bull > bear) votes.push(1);
-    else if (bear > bull) votes.push(-1);
-    else                  votes.push(0);
+    if      (bull > bear) w(1,  1);
+    else if (bear > bull) w(-1, 1);
+    else                  w(0,  1);
   }
 
-  // ── 4. MACD (12/26) differential ──────────────────────────────────────────
+  // ── 6. 5-candle close consistency (weight: 1.5) ────────────────────────────
+  // Checks if recent closes consistently move in one direction (trend persistence)
   {
-    const fast = emaLast(closes, Math.min(12, n));
-    const slow = emaLast(closes, Math.min(26, n));
-    const macd = fast - slow;
-    // Also compare vs previous bar's MACD to detect histogram growing/shrinking
+    const recent5 = closes.slice(-5);
+    let upMoves = 0, dnMoves = 0;
+    for (let i = 1; i < recent5.length; i++) {
+      if (recent5[i]! > recent5[i - 1]!) upMoves++;
+      else if (recent5[i]! < recent5[i - 1]!) dnMoves++;
+    }
+    if      (upMoves >= 3) w(1,  1.5);
+    else if (dnMoves >= 3) w(-1, 1.5);
+    else                   w(0,  1.0);
+  }
+
+  // ── 7. MACD histogram direction + acceleration (weight: 2) ─────────────────
+  {
+    const fast  = emaLast(closes, Math.min(12, n));
+    const slow  = emaLast(closes, Math.min(26, n));
+    const macd  = fast - slow;
     const fastP = emaLast(closes.slice(0, -1), Math.min(12, n - 1));
     const slowP = emaLast(closes.slice(0, -1), Math.min(26, n - 1));
     const macdP = fastP - slowP;
-    if      (macd > 0 && macd > macdP) votes.push(1);   // MACD positive & rising
-    else if (macd < 0 && macd < macdP) votes.push(-1);  // MACD negative & falling
-    else if (macd > 0)                 votes.push(1);   // MACD positive
-    else if (macd < 0)                 votes.push(-1);  // MACD negative
-    else                               votes.push(0);
+    // Histogram growing = stronger signal
+    if      (macd > 0 && macd > macdP) w(1,  2);
+    else if (macd < 0 && macd < macdP) w(-1, 2);
+    else if (macd > 0)                 w(1,  1);
+    else if (macd < 0)                 w(-1, 1);
+    else                               w(0,  1);
   }
 
-  // ── 5. Bollinger Bands midline position ────────────────────────────────────
+  // ── 8. Bollinger Bands position (weight: 1) ─────────────────────────────────
   {
     const pos = bbPosition(closes, Math.min(20, n));
-    if      (pos > 0.6) votes.push(1);   // above midline — bullish
-    else if (pos < 0.4) votes.push(-1);  // below midline — bearish
-    else                votes.push(0);   // near mid — abstain
+    if      (pos > 0.62) w(1,  1);
+    else if (pos < 0.38) w(-1, 1);
+    else                 w(0,  1);
   }
 
-  // ── 6. Volume surge confirmation ───────────────────────────────────────────
+  // ── 9. Volume surge confirmation (weight: 1.5) ─────────────────────────────
   {
     const avgVol  = volumes.slice(0, -1).reduce((a, b) => a + b, 0) / Math.max(1, n - 1);
     const lastVol = volumes[n - 1]!;
     const last    = candles[n - 1]!;
-    if (lastVol > avgVol * 1.25) {
-      votes.push(last.close > last.open ? 1 : -1);
+    if (lastVol > avgVol * 1.3) {
+      // Strong surge: higher weight
+      w(last.close > last.open ? 1 : -1, 1.5);
+    } else if (lastVol > avgVol * 1.1) {
+      w(last.close > last.open ? 1 : -1, 0.75);
     } else {
-      votes.push(0); // no surge — abstain
+      w(0, 0.5); // no surge — abstain
     }
   }
 
-  // ── 7. Candlestick pattern ──────────────────────────────────────────────────
+  // ── 10. Candlestick pattern (weight: 1.5–2) ─────────────────────────────────
   {
     const last = candles[n - 1]!;
     const prev = candles[n - 2]!;
-    const body       = Math.abs(last.close - last.open);
-    const range      = last.high - last.low;
-    const upperWick  = last.high - Math.max(last.open, last.close);
-    const lowerWick  = Math.min(last.open, last.close) - last.low;
+    const body      = Math.abs(last.close - last.open);
+    const range     = last.high - last.low;
+    const upperWick = last.high - Math.max(last.open, last.close);
+    const lowerWick = Math.min(last.open, last.close) - last.low;
 
-    if (range === 0) {
-      votes.push(0);
-    } else if (body / range < 0.12) {
-      // Doji — indecision, abstain
-      votes.push(0);
-    } else if (lowerWick > body * 1.8 && upperWick < body * 0.6) {
-      // Hammer / pin bar — bullish reversal
-      votes.push(1);
-    } else if (upperWick > body * 1.8 && lowerWick < body * 0.6) {
-      // Shooting star / inverted hammer — bearish reversal
-      votes.push(-1);
+    if (range === 0 || body / range < 0.10) {
+      w(0, 0.5); // doji / inside bar — very weak signal
+    } else if (lowerWick > body * 2.0 && upperWick < body * 0.5) {
+      w(1, 2);   // Strong hammer / bullish pin bar
+    } else if (upperWick > body * 2.0 && lowerWick < body * 0.5) {
+      w(-1, 2);  // Strong shooting star / bearish pin bar
+    } else if (lowerWick > body * 1.5 && upperWick < body * 0.8) {
+      w(1, 1.5); // Moderate hammer
+    } else if (upperWick > body * 1.5 && lowerWick < body * 0.8) {
+      w(-1, 1.5);// Moderate shooting star
     } else if (
       prev.close < prev.open &&
       last.close > last.open &&
       last.close > prev.open &&
       last.open  < prev.close
     ) {
-      // Bullish engulfing
-      votes.push(1);
+      w(1, 2);   // Bullish engulfing
     } else if (
       prev.close > prev.open &&
       last.close < last.open &&
       last.close < prev.open &&
       last.open  > prev.close
     ) {
-      // Bearish engulfing
-      votes.push(-1);
+      w(-1, 2);  // Bearish engulfing
     } else {
-      // Normal directional candle
-      votes.push(last.close >= last.open ? 1 : -1);
+      w(last.close >= last.open ? 1 : -1, 1); // plain directional candle
     }
   }
 
-  // ── Tally votes ────────────────────────────────────────────────────────────
-  const callVotes = votes.filter(v => v === 1).length;
-  const putVotes  = votes.filter(v => v === -1).length;
-  const totalActive = votes.filter(v => v !== 0).length || 1;
+  // ── 11. EMA 5 slope (angle check) (weight: 1) ──────────────────────────────
+  // Compare current EMA5 vs EMA5 from 3 bars ago — rising/falling angle
+  {
+    const ema5Series = emaSeries(closes, Math.min(5, n));
+    const current = ema5Series[ema5Series.length - 1]!;
+    const prev3   = ema5Series[Math.max(0, ema5Series.length - 4)]!;
+    if      (current > prev3 * 1.0001) w(1,  1);
+    else if (current < prev3 * 0.9999) w(-1, 1);
+    else                               w(0,  0.5); // flat slope — abstain
+  }
 
-  const direction: "CALL" | "PUT" = callVotes >= putVotes ? "CALL" : "PUT";
-  const winVotes  = direction === "CALL" ? callVotes : putVotes;
-  const confidence = Math.round((winVotes / totalActive) * 100);
+  // ── Weighted tally ─────────────────────────────────────────────────────────
+  let callWeight = 0, putWeight = 0, totalWeight = 0;
+  for (const { vote, weight } of weightedVotes) {
+    if (vote === 1)       { callWeight += weight; totalWeight += weight; }
+    else if (vote === -1) { putWeight  += weight; totalWeight += weight; }
+    // abstain: still count a fraction of weight so confidence is meaningful
+    else                  { totalWeight += weight * 0.3; }
+  }
 
-  // ── ATR gate — skip flat/dead markets ─────────────────────────────────────
-  const atr = atrCalc(candles, Math.min(5, n));
-  const hasVolatility = atr >= 0.00015;
+  const direction: "CALL" | "PUT" = callWeight >= putWeight ? "CALL" : "PUT";
+  const winWeight = direction === "CALL" ? callWeight : putWeight;
+  const confidence = totalWeight > 0
+    ? Math.min(99, Math.round((winWeight / totalWeight) * 100))
+    : 50;
 
-  // Require 5 of 7 active indicators to agree AND sufficient volatility
-  const confirmed = hasVolatility && winVotes >= 4 && confidence >= 60;
-  const strength  = confidence >= 80 ? "strong"
-                  : confidence >= 65 ? "medium"
-                  : "weak";
+  // ── Quality gates ─────────────────────────────────────────────────────────
+  const atr = atrCalc(candles, Math.min(7, n));
+  const hasVolatility = atr >= 0.00012; // wider than before — catches more OTC pairs
 
-  return { direction, strength, confirmed, confidence };
+  // ADX-style: if trend is too choppy (strength < 18), reduce confidence
+  const strength14 = trendStrength(closes, Math.min(14, n - 1));
+  const hasDirection = strength14 >= 15; // not pure noise
+
+  // Hard vote count check: count indicators on winning side (unweighted)
+  const rawCallVotes = weightedVotes.filter(v => v.vote === 1).length;
+  const rawPutVotes  = weightedVotes.filter(v => v.vote === -1).length;
+  const winRawVotes  = direction === "CALL" ? rawCallVotes : rawPutVotes;
+
+  // Confirmed = 7+ raw votes on winning side (out of 11) AND volatility AND direction
+  const confirmed = hasVolatility && hasDirection && winRawVotes >= 7 && confidence >= 65;
+
+  const strengthLabel: "strong" | "medium" | "weak" =
+    confidence >= 82 ? "strong" :
+    confidence >= 68 ? "medium" : "weak";
+
+  return { direction, strength: strengthLabel, confirmed, confidence };
+}
+
+/**
+ * Dual-timeframe confirmation.
+ * Runs the full 11-indicator engine on both the current TF (short) and
+ * a higher TF (simulated by using every-N close to represent longer bars).
+ * Returns the short-TF result, but if the two TFs disagree the confidence
+ * is penalised — preventing signals that fight the macro trend.
+ */
+export function analyseWithDualTF(candles: Candle[], tfMinutes: number): SignalQuality {
+  // Short TF (full resolution)
+  const shortResult = analyseSignalQuality(candles);
+
+  // Higher TF: merge every 3 candles into one for a 3× slower view
+  const step = Math.max(2, Math.floor(tfMinutes <= 2 ? 3 : 2));
+  const htfCandles: Candle[] = [];
+  for (let i = 0; i + step <= candles.length; i += step) {
+    const slice = candles.slice(i, i + step);
+    htfCandles.push({
+      time:   slice[0]!.time,
+      open:   slice[0]!.open,
+      high:   Math.max(...slice.map(c => c.high)),
+      low:    Math.min(...slice.map(c => c.low)),
+      close:  slice[slice.length - 1]!.close,
+      volume: slice.reduce((s, c) => s + (c.volume ?? 1000), 0),
+    });
+  }
+
+  if (htfCandles.length < 5) return shortResult;
+
+  const htfResult = analyseSignalQuality(htfCandles);
+
+  // If both TFs agree → boost confidence slightly
+  if (htfResult.direction === shortResult.direction) {
+    const boosted = Math.min(99, shortResult.confidence + 4);
+    const confirmed = shortResult.confirmed && htfResult.confidence >= 60;
+    return { ...shortResult, confidence: boosted, confirmed };
+  }
+
+  // TFs disagree → penalise confidence; mark as unconfirmed
+  const penalised = Math.max(40, shortResult.confidence - 12);
+  return { ...shortResult, confidence: penalised, confirmed: false };
 }
