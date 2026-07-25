@@ -186,8 +186,12 @@ const PACKAGES: Package[] = [
   { id:"life",  badge:"♾️", name:"Lifetime", days:null, price:919, label:"Lifetime",   durationText:"Lifetime Future Signal"   },
 ];
 
-const BINANCE_PAY_ID = "582355370";
-const USDT_ADDRESS   = "TYudgrH88fCWzNqthy6tXQAieeNcCBYmER";
+const BINANCE_PAY_ID  = "582355370";
+const USDT_TRC20_ADDR = "TYudgrH88fCWzNqthy6tXQAieeNcCBYmER";
+const BNB_BEP20_ADDR  = "0x3dc13af0ff1a7f4585360ab416d35d335afe68e3";
+const BTC_ADDR        = "1KgTBewwyvg6wd1F5jy9PKMy3mkvajbaCf";
+const ETH_ERC20_ADDR  = "0x3dc13af0ff1a7f4585360ab416d35d335afe68e3";
+const SOL_ADDR        = "CuG5iW99W8fKCPyT34Zkgyox2aa7hzyK8eRL3CXBvjXC";
 const ADMIN_CHAT_URL = "https://t.me/oawhidshakib";
 const COMMUNITY_URL  = "https://t.me/traderguide_bot";
 
@@ -702,12 +706,38 @@ function buildPaymentInstructionsText(pkg: Package): string {
     `💳 <b>Payment Instructions</b>\n` +
     `📦 <b>Package:</b>  ${pkg.badge} ${escapeHtml(pkg.label)}\n` +
     `💰 <b>Amount:</b>  <code>$${pkg.price}</code>\n\n` +
-    `💛 <b>Binance Pay</b> <i>(Business Official)</i>\n` +
-    `┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄\n` +
+
+    `━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
+    `💛 <b>Binance Pay</b>  <i>(Business Official)</i>\n` +
+    `━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
     `🪪  <b>Pay ID:</b>\n<code>${BINANCE_PAY_ID}</code>\n\n` +
-    `🔷 <b>Crypto — USDT (TRC20 Network)</b>\n` +
-    `┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄\n` +
-    `🏷  <b>Wallet Address:</b>\n<code>${USDT_ADDRESS}</code>`
+
+    `━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
+    `🟢 <b>USDT — TRC20 Network</b>\n` +
+    `━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
+    `🏷  <b>Wallet Address:</b>\n<code>${USDT_TRC20_ADDR}</code>\n\n` +
+
+    `━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
+    `🟡 <b>BNB Smart Chain — BEP20</b>\n` +
+    `━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
+    `🏷  <b>Wallet Address:</b>\n<code>${BNB_BEP20_ADDR}</code>\n\n` +
+
+    `━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
+    `🟠 <b>BTC — Bitcoin Network</b>\n` +
+    `━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
+    `🏷  <b>Wallet Address:</b>\n<code>${BTC_ADDR}</code>\n\n` +
+
+    `━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
+    `🔷 <b>Ethereum — ERC20</b>\n` +
+    `━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
+    `🏷  <b>Wallet Address:</b>\n<code>${ETH_ERC20_ADDR}</code>\n\n` +
+
+    `━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
+    `🟣 <b>Solana — SOL Network</b>\n` +
+    `━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
+    `🏷  <b>Wallet Address:</b>\n<code>${SOL_ADDR}</code>\n\n` +
+
+    `<i>After payment, tap the button below to send your screenshot.</i>`
   );
 }
 
