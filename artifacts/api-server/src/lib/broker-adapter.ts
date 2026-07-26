@@ -295,7 +295,10 @@ function assetSeed(asset: string): () => number {
 }
 
 function generateAlgorithmicCandles(asset: string, tfMinutes: number, count: number): Candle[] {
-  const rng      = assetSeed(asset + String(tfMinutes));
+  // Refresh seed every 15 minutes so the same pair produces different candles
+  // each session — breaking the permanent determinism that caused repeated losses.
+  const epochSlot = Math.floor(Date.now() / (15 * 60_000));
+  const rng      = assetSeed(asset + String(tfMinutes) + String(epochSlot));
   const candles: Candle[] = [];
 
   // Asset-specific base price and volatility profile
@@ -439,6 +442,20 @@ export interface SignalQuality {
 }
 
 /**
+ * Analysis options — tighten thresholds for choppy/OTC markets.
+ */
+export interface AnalysisOptions {
+  /** Minimum raw indicator votes on winning side required for confirmation (default: 7) */
+  minVotes?: number;
+  /** Minimum ATR volatility (default: 0.00012) */
+  minAtr?: number;
+  /** Minimum ADX-style trend strength (default: 15) */
+  minTrendStrength?: number;
+  /** Minimum confidence % for confirmed status (default: 65) */
+  minConfidence?: number;
+}
+
+/**
  * ELITE 11-Indicator Confluence Engine.
  *
  * Each indicator votes +1 (CALL), -1 (PUT), or 0 (abstain).
@@ -460,7 +477,7 @@ export interface SignalQuality {
  *   10. Candlestick pattern         — pin bar, engulfing, hammer/shooting star
  *   11. EMA slope (5-bar)          — EMA angle confirms direction
  */
-export function analyseSignalQuality(candles: Candle[]): SignalQuality {
+export function analyseSignalQuality(candles: Candle[], opts: AnalysisOptions = {}): SignalQuality {
   if (candles.length < 8) {
     return { direction: "CALL", strength: "weak", confirmed: false, confidence: 42 };
   }
@@ -637,21 +654,23 @@ export function analyseSignalQuality(candles: Candle[]): SignalQuality {
     ? Math.min(99, Math.round((winWeight / totalWeight) * 100))
     : 50;
 
-  // ── Quality gates ─────────────────────────────────────────────────────────
+  // ── Quality gates (configurable via opts for OTC tightening) ─────────────
+  const reqVotes      = opts.minVotes        ?? 7;
+  const reqAtr        = opts.minAtr          ?? 0.00012;
+  const reqStrength   = opts.minTrendStrength ?? 15;
+  const reqConfidence = opts.minConfidence    ?? 65;
+
   const atr = atrCalc(candles, Math.min(7, n));
-  const hasVolatility = atr >= 0.00012; // wider than before — catches more OTC pairs
+  const hasVolatility = atr >= reqAtr;
 
-  // ADX-style: if trend is too choppy (strength < 18), reduce confidence
   const strength14 = trendStrength(closes, Math.min(14, n - 1));
-  const hasDirection = strength14 >= 15; // not pure noise
+  const hasDirection = strength14 >= reqStrength;
 
-  // Hard vote count check: count indicators on winning side (unweighted)
   const rawCallVotes = weightedVotes.filter(v => v.vote === 1).length;
   const rawPutVotes  = weightedVotes.filter(v => v.vote === -1).length;
   const winRawVotes  = direction === "CALL" ? rawCallVotes : rawPutVotes;
 
-  // Confirmed = 7+ raw votes on winning side (out of 11) AND volatility AND direction
-  const confirmed = hasVolatility && hasDirection && winRawVotes >= 7 && confidence >= 65;
+  const confirmed = hasVolatility && hasDirection && winRawVotes >= reqVotes && confidence >= reqConfidence;
 
   const strengthLabel: "strong" | "medium" | "weak" =
     confidence >= 82 ? "strong" :
@@ -660,23 +679,13 @@ export function analyseSignalQuality(candles: Candle[]): SignalQuality {
   return { direction, strength: strengthLabel, confirmed, confidence };
 }
 
-/**
- * Dual-timeframe confirmation.
- * Runs the full 11-indicator engine on both the current TF (short) and
- * a higher TF (simulated by using every-N close to represent longer bars).
- * Returns the short-TF result, but if the two TFs disagree the confidence
- * is penalised — preventing signals that fight the macro trend.
- */
-export function analyseWithDualTF(candles: Candle[], tfMinutes: number): SignalQuality {
-  // Short TF (full resolution)
-  const shortResult = analyseSignalQuality(candles);
+// ─── Candle Compression Helper ────────────────────────────────────────────────
 
-  // Higher TF: merge every 3 candles into one for a 3× slower view
-  const step = Math.max(2, Math.floor(tfMinutes <= 2 ? 3 : 2));
-  const htfCandles: Candle[] = [];
+function compressCandles(candles: Candle[], step: number): Candle[] {
+  const out: Candle[] = [];
   for (let i = 0; i + step <= candles.length; i += step) {
     const slice = candles.slice(i, i + step);
-    htfCandles.push({
+    out.push({
       time:   slice[0]!.time,
       open:   slice[0]!.open,
       high:   Math.max(...slice.map(c => c.high)),
@@ -685,19 +694,104 @@ export function analyseWithDualTF(candles: Candle[], tfMinutes: number): SignalQ
       volume: slice.reduce((s, c) => s + (c.volume ?? 1000), 0),
     });
   }
+  return out;
+}
 
+/**
+ * Dual-timeframe confirmation.
+ * Runs the full 11-indicator engine on both the current TF (short) and
+ * a higher TF (simulated by compressing candles 3×).
+ * Returns the short-TF result, but if the two TFs disagree the confidence
+ * is penalised — preventing signals that fight the macro trend.
+ */
+export function analyseWithDualTF(
+  candles: Candle[],
+  tfMinutes: number,
+  opts: AnalysisOptions = {},
+): SignalQuality {
+  const shortResult = analyseSignalQuality(candles, opts);
+
+  const step = Math.max(2, tfMinutes <= 2 ? 3 : 2);
+  const htfCandles = compressCandles(candles, step);
   if (htfCandles.length < 5) return shortResult;
 
-  const htfResult = analyseSignalQuality(htfCandles);
+  const htfResult = analyseSignalQuality(htfCandles, opts);
 
-  // If both TFs agree → boost confidence slightly
   if (htfResult.direction === shortResult.direction) {
-    const boosted = Math.min(99, shortResult.confidence + 4);
+    const boosted   = Math.min(99, shortResult.confidence + 4);
     const confirmed = shortResult.confirmed && htfResult.confidence >= 60;
     return { ...shortResult, confidence: boosted, confirmed };
   }
 
-  // TFs disagree → penalise confidence; mark as unconfirmed
   const penalised = Math.max(40, shortResult.confidence - 12);
   return { ...shortResult, confidence: penalised, confirmed: false };
+}
+
+/**
+ * Triple-timeframe confirmation — designed for choppy OTC markets.
+ *
+ * Runs the analysis engine at three compression levels:
+ *   Level 1 (1×) — raw bars, full resolution
+ *   Level 2 (3×) — mid timeframe, 3 bars merged into 1
+ *   Level 3 (6×) — macro timeframe, 6 bars merged into 1
+ *
+ * Scoring:
+ *   All 3 agree    → +6 confidence, confirmed if short TF also confirmed
+ *   Short + Mid    → +3 confidence, confirmed if short TF confirmed
+ *   Short disagrees Mid → −16, not confirmed
+ *   Macro disagrees → −8 additional penalty
+ *
+ * This eliminates signals where the macro trend opposes the short-term
+ * read — the most common cause of consecutive losses on OTC pairs.
+ */
+export function analyseWithTripleTF(
+  candles: Candle[],
+  tfMinutes: number,
+  opts: AnalysisOptions = {},
+): SignalQuality {
+  const shortResult = analyseSignalQuality(candles, opts);
+
+  // Mid TF: 3× compression
+  const midCandles = compressCandles(candles, 3);
+  if (midCandles.length < 5) {
+    // Fall back to dual-TF if not enough candles for triple
+    return analyseWithDualTF(candles, tfMinutes, opts);
+  }
+  const midResult = analyseSignalQuality(midCandles, opts);
+
+  // Short + Mid disagree → high penalty, unconfirmed
+  if (midResult.direction !== shortResult.direction) {
+    const penalised = Math.max(35, shortResult.confidence - 16);
+    return { ...shortResult, confidence: penalised, confirmed: false };
+  }
+
+  // Short + Mid agree → boost; now check macro TF
+  let result: SignalQuality = {
+    ...shortResult,
+    confidence: Math.min(99, shortResult.confidence + 3),
+    confirmed:  shortResult.confirmed && midResult.confidence >= 58,
+  };
+
+  // Macro TF: 6× compression
+  const macroCandles = compressCandles(candles, 6);
+  if (macroCandles.length >= 5) {
+    const macroResult = analyseSignalQuality(macroCandles, opts);
+    if (macroResult.direction === shortResult.direction) {
+      // All 3 levels agree — maximum confidence boost
+      result = {
+        ...result,
+        confidence: Math.min(99, result.confidence + 3),
+        confirmed:  result.confirmed && macroResult.confidence >= 52,
+      };
+    } else {
+      // Macro fights the signal — penalise but don't block entirely
+      result = {
+        ...result,
+        confidence: Math.max(40, result.confidence - 8),
+        confirmed:  false,
+      };
+    }
+  }
+
+  return result;
 }

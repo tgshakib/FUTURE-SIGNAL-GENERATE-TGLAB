@@ -1,6 +1,6 @@
 import { Telegraf, Markup, session } from "telegraf";
 import { logger } from "./lib/logger";
-import { adapters, initAdapters, analyseWithDualTF } from "./lib/broker-adapter";
+import { adapters, initAdapters, analyseWithDualTF, analyseWithTripleTF } from "./lib/broker-adapter";
 
 const BOT_TOKEN     = process.env["TELEGRAM_BOT_TOKEN"];
 const ADMIN_CHAT_ID = process.env["BOT_ADMIN_ID"] ?? process.env["TELEGRAM_ADMIN_CHAT_ID"];
@@ -378,14 +378,17 @@ function generateMixedDirs(
   count: number,
   bias: "CALL" | "PUT",
   biasWeight = 0.65,
+  /** Max consecutive same-direction signals before a forced flip.
+   *  Pass 1 for OTC markets to alternate aggressively and cut loss streaks. */
+  maxStreak = 2,
 ): ("CALL" | "PUT")[] {
   const dirs: ("CALL" | "PUT")[] = [];
   let streak = 0;
   let lastDir: "CALL" | "PUT" | null = null;
 
   for (let i = 0; i < count; i++) {
-    // Hard streak-breaker: force flip after 2 consecutive same-direction
-    if (streak >= 2 && lastDir !== null) {
+    // Hard streak-breaker: force flip after maxStreak consecutive same-direction
+    if (streak >= maxStreak && lastDir !== null) {
       const forced = invertDir(lastDir);
       dirs.push(forced);
       lastDir = forced;
@@ -393,9 +396,9 @@ function generateMixedDirs(
       continue;
     }
 
-    // Normal weighted pick with a small anti-clustering nudge after 1 same
+    // Progressively nudge toward variety as streak grows
     let w = biasWeight;
-    if (streak === 1) w = Math.max(0.50, biasWeight - 0.08); // nudge toward variety
+    if (streak >= 1) w = Math.max(0.50, biasWeight - 0.08 * streak);
 
     const pick = Math.random() < w ? bias : invertDir(bias);
     dirs.push(pick);
@@ -461,10 +464,23 @@ async function buildSignalMessage(
     let confidence = 50;
 
     {
-      // Dual-timeframe confluence analysis — short TF + macro TF must agree
-      const adapter = adapters["quotex"]!;
-      const candles = await adapter.getCandles(asset, timeframe, 40);
-      const quality = analyseWithDualTF(candles, timeframe);
+      // Route candles through the correct broker adapter for this market
+      const adKey   = market === "quotex" ? "quotex"
+                    : market === "po"     ? "po"
+                    : market === "iq"     ? "iq"
+                    : market === "olymp"  ? "olymp"
+                    : "quotex";
+      const adapter = adapters[adKey] ?? adapters["quotex"]!;
+
+      // OTC markets: wider candle window + tighter triple-TF engine
+      const candleCount = isOtc ? 60 : 40;
+      const candles     = await adapter.getCandles(asset, timeframe, candleCount);
+
+      // OTC: require 8/11 votes, higher ATR floor, stronger trend signal, 68% min confidence
+      const OTC_OPTS = { minVotes: 8, minAtr: 0.00016, minTrendStrength: 18, minConfidence: 68 } as const;
+      const quality  = isOtc
+        ? analyseWithTripleTF(candles, timeframe, OTC_OPTS)
+        : analyseWithDualTF(candles, timeframe);
 
       confidence = quality.confidence;
 
@@ -478,9 +494,6 @@ async function buildSignalMessage(
         continue;
       }
 
-      // For fixed direction (PUT/CALL): if analysis strongly disagrees, flip is
-      // not applied but confidence is noted — we still emit the user's direction
-      // but trust the bias weight reflects the true market read.
       biasDir = direction === "BOTH" ? quality.direction : direction;
     }
 
@@ -502,10 +515,13 @@ async function buildSignalMessage(
     }
 
     // ── 3. Assign per-slot direction ────────────────────────────────────────
-    // Derive biasWeight from analysis confidence (clamped to 55–80% for realism)
-    const biasWeight = Math.min(0.80, Math.max(0.55, confidence / 100));
+    // OTC markets cap bias at 0.65 to prevent runaway streaks.
+    // Non-OTC can go up to 0.80 reflecting stronger trend persistence.
+    const maxBias    = isOtc ? 0.65 : 0.80;
+    const biasWeight = Math.min(maxBias, Math.max(0.55, confidence / 100));
+    // OTC: maxStreak=1 forces alternation after every single same-direction signal
     const slotDirs: ("CALL" | "PUT")[] = isMix
-      ? generateMixedDirs(effectiveCount, biasDir, biasWeight)
+      ? generateMixedDirs(effectiveCount, biasDir, biasWeight, isOtc ? 1 : 2)
       : Array(effectiveCount).fill(biasDir);
 
     // ── 4. Build block ──────────────────────────────────────────────────────
@@ -588,13 +604,28 @@ async function buildHourBlockMessage(
       .replace(/\s+/g, "")
       .trim();
 
-    // Dual-timeframe confluence analysis for bias direction
-    const candles   = await adapters["quotex"]!.getCandles(asset, timeframe, 40);
-    const quality   = analyseWithDualTF(candles, timeframe);
+    // Route candles through the correct broker adapter for this market
+    const adKey2   = market === "quotex" ? "quotex"
+                   : market === "po"     ? "po"
+                   : market === "iq"     ? "iq"
+                   : market === "olymp"  ? "olymp"
+                   : "quotex";
+    const adapter2 = adapters[adKey2] ?? adapters["quotex"]!;
+
+    // OTC: wider candle window + tighter triple-TF engine
+    const candleCount2 = isOtc ? 60 : 40;
+    const candles      = await adapter2.getCandles(asset, timeframe, candleCount2);
+    const OTC_OPTS2    = { minVotes: 8, minAtr: 0.00016, minTrendStrength: 18, minConfidence: 68 } as const;
+    const quality      = isOtc
+      ? analyseWithTripleTF(candles, timeframe, OTC_OPTS2)
+      : analyseWithDualTF(candles, timeframe);
+
     const biasDir: "CALL" | "PUT" = direction === "BOTH" ? quality.direction : direction;
 
-    // Major pairs → tighter bias weight; minor pairs → slightly looser
-    const biasWeight = isMajorPair(asset) ? 0.72 : 0.62;
+    // OTC: cap bias lower to avoid direction streaks; major pairs allow tighter bias
+    const biasWeight = isOtc
+      ? (isMajorPair(asset) ? 0.63 : 0.58)
+      : (isMajorPair(asset) ? 0.72 : 0.62);
 
     // 15–30 signals per hour × window hours
     const countPerHour = 15 + Math.floor(Math.random() * 16);
@@ -617,7 +648,7 @@ async function buildHourBlockMessage(
     }
 
     const slotDirs = isMix
-      ? generateMixedDirs(offsets.length, biasDir, biasWeight)
+      ? generateMixedDirs(offsets.length, biasDir, biasWeight, isOtc ? 1 : 2)
       : Array(offsets.length).fill(biasDir) as ("CALL" | "PUT")[];
 
     const lines = offsets.map((off, i) => {
